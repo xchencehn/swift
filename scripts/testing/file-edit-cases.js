@@ -51,7 +51,8 @@ async function run(page, { expect, viewport, output, directory, delaySave }) {
   if (compact) await expect(outline).toBeHidden();
   const reader = view.locator('.workspace-markdown-reader');
   assert.equal(await outline.locator('[aria-current]').textContent(), '检查结果');
-  let readingWidth = null;
+  let readingWidth = null,
+    outlineWidth = null;
   if (!viewport.touch) {
     const handle = view.locator('.workspace-markdown-resizer');
     await expect(handle).toBeVisible();
@@ -93,6 +94,53 @@ async function run(page, { expect, viewport, output, directory, delaySave }) {
       '文件调宽不改变聊天宽度',
     );
   }
+  const outlineHandle = view.locator('.workspace-outline-resizer');
+  if (!compact) {
+    await expect(outlineHandle).toBeVisible();
+    const before = await outline.evaluate((node) => node.getBoundingClientRect().width);
+    const bounds = await outlineHandle.boundingBox();
+    await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + 100);
+    await page.mouse.down();
+    await page.mouse.move(bounds.x + bounds.width / 2 - 60, bounds.y + 100, { steps: 6 });
+    await page.mouse.up();
+    await expect
+      .poll(async () =>
+        Math.abs(
+          (await outline.evaluate((node) => node.getBoundingClientRect().width)) - before - 60,
+        ),
+      )
+      .toBeLessThanOrEqual(1);
+    await outlineHandle.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect
+      .poll(async () =>
+        Math.abs(
+          (await outline.evaluate((node) => node.getBoundingClientRect().width)) - before - 40,
+        ),
+      )
+      .toBeLessThanOrEqual(1);
+    await page.keyboard.press('Home');
+    await expect
+      .poll(async () =>
+        Math.abs((await outline.evaluate((node) => node.getBoundingClientRect().width)) - before),
+      )
+      .toBeLessThanOrEqual(1);
+    await page.keyboard.press('ArrowLeft');
+    outlineWidth = await page
+      .locator('#workspaceFilesPage')
+      .evaluate((node) => node.style.getPropertyValue('--workspace-outline-width'));
+    assert(outlineWidth.endsWith('px'));
+  } else await expect(outlineHandle).toBeHidden();
+  const scrollbars = await page.evaluate(() =>
+    ['.workspace-tree-body', '.workspace-markdown-reader', '.workspace-file-outline'].map(
+      (selector) => {
+        const style = getComputedStyle(document.querySelector(selector));
+        return [style.scrollbarWidth, style.scrollbarColor];
+      },
+    ),
+  );
+  assert.deepEqual(scrollbars[0], scrollbars[1]);
+  assert.deepEqual(scrollbars[0], scrollbars[2]);
   await reader.evaluate((node) => {
     node.scrollTop = 0;
   });
@@ -122,6 +170,11 @@ async function run(page, { expect, viewport, output, directory, delaySave }) {
   await page.getByRole('button', { name: '关闭 empty.txt', exact: true }).click();
   await page.getByRole('link', { name: '打开代码', exact: true }).click();
   await expect(view.locator('.cm-editor')).toHaveAttribute('data-language', 'JavaScript');
+  await page.evaluate(() => document.fonts.ready);
+  const codeFont = await view
+    .locator('.cm-scroller')
+    .evaluate((node) => getComputedStyle(node).fontFamily);
+  assert.match(codeFont, /^["']?Cascadia Mono/);
   await page.evaluate(() => {
     window.originalCodeEditor = document.querySelector(
       '.workspace-file-view:not([hidden]) .cm-editor',
@@ -300,6 +353,8 @@ async function run(page, { expect, viewport, output, directory, delaySave }) {
     fullAndEmptyCopy: true,
     outline: true,
     readingWidth,
+    outlineWidth,
+    codeFont,
   };
 }
 module.exports = { run };

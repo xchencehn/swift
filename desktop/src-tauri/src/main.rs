@@ -2,15 +2,15 @@
 use std::{
     path::PathBuf,
     sync::{
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc,
     },
 };
 use swift_desktop_core::{gateway, storage::NativeVault};
 use tauri::{
-    webview::WebviewBuilder,
+    webview::{PageLoadEvent, WebviewBuilder},
     window::{Color, WindowBuilder},
-    Manager, WebviewUrl,
+    Manager, WebviewUrl, WindowEvent,
 };
 mod updates;
 
@@ -129,6 +129,35 @@ fn build_window(app: &tauri::AppHandle, label: &str, start: tauri::Url) -> tauri
         .background_color(Color(23, 23, 26, 255))
         .visible(false)
         .build()?;
+    // WebView2 destruction does not unload the page. Navigate while hidden so
+    // pagehide can save the existing boot cache, without serializing on render.
+    let closing = Arc::new(AtomicBool::new(false));
+    let close_window = window.clone();
+    let close_app = app.clone();
+    let close_label = label.to_owned();
+    let close_started = closing.clone();
+    window.on_window_event(move |event| {
+        if let WindowEvent::CloseRequested { api, .. } = event {
+            let Some(webview) = close_app.get_webview(&close_label) else {
+                return;
+            };
+            api.prevent_close();
+            if close_started.swap(true, Ordering::Relaxed) {
+                return;
+            }
+            let _ = close_window.hide();
+            if webview.navigate("about:blank".parse().unwrap()).is_err() {
+                let _ = close_window.destroy();
+                return;
+            }
+            // An unresponsive renderer must not leave an invisible app resident.
+            let window = close_window.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                let _ = window.destroy();
+            });
+        }
+    });
     window.show()?;
     let directory = config.directory.clone();
     let label = label.to_owned();
@@ -138,6 +167,7 @@ fn build_window(app: &tauri::AppHandle, label: &str, start: tauri::Url) -> tauri
             Ok(size) => size,
             Err(_) => return,
         };
+        let unload_started = closing.clone();
         let builder = WebviewBuilder::new(&label, WebviewUrl::External(start))
             .auto_resize()
             .background_color(Color(23, 23, 26, 255))
@@ -149,7 +179,16 @@ fn build_window(app: &tauri::AppHandle, label: &str, start: tauri::Url) -> tauri
                 " --autoplay-policy=no-user-gesture-required"
             ))
             .on_document_title_changed(|webview, title| { let _ = webview.window().set_title(&title); })
+            .on_page_load(move |webview, payload| {
+                if unload_started.load(Ordering::Relaxed)
+                    && payload.url().as_str() == "about:blank"
+                    && matches!(payload.event(), PageLoadEvent::Finished)
+                {
+                    let _ = webview.window().destroy();
+                }
+            })
             .on_navigation(move |url| {
+                if closing.load(Ordering::Relaxed) && url.as_str() == "about:blank" { return true; }
                 if url.origin().ascii_serialization() == origin { return true; }
                 if ["http", "https"].contains(&url.scheme()) && url.username().is_empty() && url.password().is_none() {
                     let _ = open_external(url.as_str());

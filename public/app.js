@@ -2766,13 +2766,14 @@
   desktopFiles.addEventListener('change', () => {
     if (state.filesOpen) state.filesScroll = els.chatLog.scrollTop || state.filesScroll;
   });
-  // 右侧面板的外壳（public/files/shell.js）：开合、三层导航、两段列表。
-  // 面板里显示什么归 files/doc-view.js，这里只管什么时候开、现在在第几层、退一步去哪。
+  // 会话文件只保留列表与搜索，文件内容使用同一个工作区文件页。
+  let sessionFileOrigin = null;
   const filesShell = StudioFilesShell.create({
     state,
     els,
     $,
     chatText,
+    openFile: (path) => workspaceFiles?.open(path),
     // 推送来的会话文件列表（活着的会话才有；归档会话照旧请求）。
     synced: (paneId) => {
       if (!sync.active()) return null;
@@ -2782,25 +2783,7 @@
       return pushed ? { ok: true, tab: 'session', files: pushed.files } : null;
     },
     request: (path, options) => api(appPath(path), options),
-    // 文件预览使用认证 blob，换页或离开时可以取消读取。
-    fetchBlob: async (path, { signal } = {}) => {
-      const response = await fetch(appPath(path), {
-        headers: authHeaders(),
-        credentials: 'same-origin',
-        signal,
-      });
-      if (!response.ok) {
-        let message = '读不到这份材料';
-        try {
-          message = (await response.json()).message || message;
-        } catch {}
-        throw new Error(message);
-      }
-      return response.blob();
-    },
     storage,
-    identity: () => chatCacheKey(),
-    reportError: (message) => reportError(message),
     saveChatCache: () => saveChatCache(),
     filesReplaceChat: () => filesReplaceChat(),
     closePopover: () => closePopover(),
@@ -2848,11 +2831,22 @@
     },
     closeDrawer: () => setChatDrawerOpen(false),
     beforeOpen: () => {
+      sessionFileOrigin = state.filesOpen
+        ? { identity: chatCacheKey(), scroll: $('#sessionFilesList').scrollTop }
+        : null;
       closeDeviceSettings(false);
       setFilesPage(false);
       closePopover();
       closeSlashCommands();
       saveChatCache();
+    },
+    onClose: (restore) => {
+      const origin = sessionFileOrigin;
+      sessionFileOrigin = null;
+      if (restore && origin?.identity === chatCacheKey()) {
+        setFilesPage(true);
+        $('#sessionFilesList').scrollTop = origin.scroll;
+      }
     },
   });
 

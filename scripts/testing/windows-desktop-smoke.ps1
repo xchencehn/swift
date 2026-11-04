@@ -32,6 +32,11 @@ public static class SwiftWindow {
  [StructLayout(LayoutKind.Explicit, Size=32)] public struct InputUnion { [FieldOffset(0)] public KeyboardInput keyboard; }
  [StructLayout(LayoutKind.Sequential)] public struct Input { public uint type; public InputUnion data; }
  [DllImport("user32.dll",SetLastError=true)] public static extern uint SendInput(uint count,Input[] input,int size);
+ public static void Shortcut(ushort key) {
+  var events=new Input[4];
+  for(int i=0;i<4;i++) { events[i].type=1; events[i].data.keyboard.key=(i==0||i==3)?(ushort)0x11:key; events[i].data.keyboard.flags=i>=2?(uint)2:0; }
+  if(SendInput(4,events,Marshal.SizeOf(typeof(Input)))!=4)throw new System.ComponentModel.Win32Exception();
+ }
  public static void SendText(string text) {
   foreach(char character in text) {
    var events=new Input[2];
@@ -195,18 +200,19 @@ function Set-Control($element,[string]$value,[switch]$Secret) {
 function Set-CodeEditor($element,[string]$value) {
  # CodeMirror uses contenteditable. Paste through the real guest keyboard and clipboard.
  $encoded=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($value))
- & powershell.exe -NoProfile -STA -Command "Set-Clipboard -Value ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$encoded')))"
- if($LASTEXITCODE -ne 0){throw 'Could not prepare the isolated editor clipboard.'}
+ $null=& powershell.exe -NoProfile -STA -Command "`$expected=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$encoded'));Set-Clipboard -Value `$expected;if((Get-Clipboard -Raw) -cne `$expected){exit 1}"
+ if($LASTEXITCODE -ne 0){throw 'The guest clipboard did not retain the exact editor text.'}
  [SwiftWindow]::SetForegroundWindow($script:mainWindow) | Out-Null
  $element.SetFocus()
+ Start-Sleep -Milliseconds 150
  if([SwiftWindow]::GetForegroundWindow() -ne $script:mainWindow -or -not $element.Current.HasKeyboardFocus){throw 'The isolated code editor does not own keyboard focus.'}
- foreach($key in @(0x41,0x56)) {
-  [SwiftWindow]::keybd_event(0x11,0,0,[UIntPtr]::Zero)
-  [SwiftWindow]::keybd_event([byte]$key,0,0,[UIntPtr]::Zero)
-  [SwiftWindow]::keybd_event([byte]$key,0,2,[UIntPtr]::Zero)
-  [SwiftWindow]::keybd_event(0x11,0,2,[UIntPtr]::Zero)
-  Start-Sleep -Milliseconds 100
+ [SwiftWindow]::Shortcut(0x41)
+ Start-Sleep -Milliseconds 100
+ $selection=$null
+ if($element.TryGetCurrentPattern([Windows.Automation.TextPattern]::Pattern,[ref]$selection)){
+  Write-Output ('Code editor native selection length: '+(($selection.GetSelection() | ForEach-Object {$_.GetText(-1)}) -join '').Length)
  }
+ [SwiftWindow]::Shortcut(0x56)
  $save=Find-Control '保存' 'Button'
  for($attempt=0;$attempt -lt 40;$attempt++){if($save.Current.IsEnabled){return};Start-Sleep -Milliseconds 100}
  throw 'The code editor did not accept the isolated multiline paste.'
@@ -289,10 +295,15 @@ try {
   $copied=& powershell.exe -NoProfile -STA -Command 'Get-Clipboard -Raw'
   if(($copied -join "`n").Replace("`r`n","`n").TrimEnd() -ne "const answer = `"中文高亮`";`nconsole.log(answer, 42);"){throw 'Highlighted code changed in the Windows clipboard.'}
   Start-Sleep -Seconds 5
-  $sample=Find-Control "const answer = `"中文高亮`";`nconsole.log(answer, 42);"
   Capture-Window 'native-chat-code-colors.png'
-  $syntaxColors=Read-HighlightColors $sample 'native-chat-code-colors.png'
-  if($syntaxColors.purple -lt 3 -or $syntaxColors.green -lt 3){throw 'Native code block has no keyword/string colors.'}
+  $root=[Windows.Automation.AutomationElement]::FromHandle($script:mainWindow)
+  $texts=$root.FindAll([Windows.Automation.TreeScope]::Descendants,[Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty,[Windows.Automation.ControlType]::Text))
+  $syntaxColors=@{purple=0;green=0;yellow=0;pixels=0}
+  foreach($item in $texts){if(-not $item.Current.IsOffscreen -and ($item.Current.Name -eq 'const' -or $item.Current.Name -like '*中文高亮*')){
+   $colors=Read-HighlightColors $item 'native-chat-code-colors.png'
+   foreach($name in @('purple','green','yellow','pixels')){$syntaxColors[$name]+=$colors[$name]}
+  }}
+  if($syntaxColors.yellow -lt 3 -or $syntaxColors.green -lt 3){throw 'Native code block has no amber keyword or green string colors.'}
   $root=[Windows.Automation.AutomationElement]::FromHandle($script:mainWindow)
   $buttons=$root.FindAll([Windows.Automation.TreeScope]::Descendants,[Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty,[Windows.Automation.ControlType]::Button))
   $colorCommand=$null
@@ -381,6 +392,13 @@ try {
   Invoke-Control (Find-Control 'files' 'TabItem')
   Invoke-Control (Find-Control 'windows-file.md' 'TreeItem')
   Find-Control 'Windows 文件验收' | Out-Null
+  $fileCopyCode=Find-Control '复制代码' 'Button'
+  $fileCopyCode.SetFocus()
+  [SwiftWindow]::keybd_event(0x20,0,0,[UIntPtr]::Zero)
+  [SwiftWindow]::keybd_event(0x20,0,2,[UIntPtr]::Zero)
+  Start-Sleep -Milliseconds 250
+  $copiedCode=& powershell.exe -NoProfile -STA -Command 'Get-Clipboard -Raw'
+  if(($copiedCode -join "`n").Replace("`r`n","`n").TrimEnd() -ne "const answer = `"中文高亮`";`nconsole.log(answer, 42);"){throw 'Markdown code copy changed the Windows clipboard content.'}
   Find-Control 'Markdown 阅读宽度，左右键调整，Home 恢复默认' | Out-Null
   $root=[Windows.Automation.AutomationElement]::FromHandle($script:mainWindow)
   $outlineCondition=[Windows.Automation.AndCondition]::new([Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::NameProperty,'保存操作'),[Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty,[Windows.Automation.ControlType]::Button))
@@ -391,7 +409,7 @@ try {
   Invoke-Control (Find-Control '复制全文' 'Button')
   Start-Sleep -Milliseconds 250
   $copied=& powershell.exe -NoProfile -STA -Command 'Get-Clipboard -Raw'
-  $originalFile="# Windows 文件验收`n`n读取与修改临时文件。`n`n## 保存操作`n`n这里是第二节。`n"
+  $originalFile="# Windows 文件验收`n`n读取与修改临时文件。`n`n"+'```javascript'+"`nconst answer = `"中文高亮`";`nconsole.log(answer, 42);`n"+'```'+"`n`n## 保存操作`n`n这里是第二节。`n"
   if(($copied -join "`n").Replace("`r`n","`n").TrimEnd() -ne $originalFile.TrimEnd()){throw 'Native full-file copy did not reach the guest clipboard intact.'}
   Invoke-Control (Find-Control '编辑' 'Button')
   $fileText="# Windows 文件验收`n`nWindows 文件编辑已保存。`n`n## 保存操作`n`n这里是第二节。`n"

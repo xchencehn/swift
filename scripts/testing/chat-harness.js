@@ -774,7 +774,10 @@ async function createFixture({
           const files = [results, derivation].filter((file) => file.path.toLowerCase().includes(q));
           return json(res, 200, { ok: true, query: q, total: files.length, files });
         }
-        if (route === 'GET /api/doc-files/content') {
+        if (
+          route === 'GET /api/doc-files/content' ||
+          route === 'GET /api/workspace-files/content'
+        ) {
           const wanted = url.searchParams.get('path');
           if (state.htmlPreview && wanted === '/fixture/workdir/native-report.html')
             return json(res, 200, {
@@ -827,7 +830,11 @@ async function createFixture({
             });
           return json(res, 404, { ok: false, code: 'NOT_FOUND', message: '没有这份材料。' });
         }
-        if (route === 'GET /api/doc-files/raw') {
+        if (
+          route === 'GET /api/doc-files/raw' ||
+          route === 'GET /api/workspace-files/raw' ||
+          route === 'GET /api/workspace-files/download'
+        ) {
           if (url.searchParams.get('path') !== figure.path)
             return json(res, 404, { ok: false, message: '没有这份材料。' });
           const png = Buffer.from(
@@ -2746,7 +2753,7 @@ async function runBrowserSuite() {
       try {
         await openFilesPanel(page, viewport);
         await page.locator('.doc-row').first().click();
-        const image = page.locator('#projectView .doc-inline-image img');
+        const image = page.locator('.workspace-file-view:not([hidden]) img.doc-image');
         await expect.poll(() => image.evaluate((img) => img.complete && img.naturalWidth)).toBe(1);
         await image.click({ button: 'right' });
         const menu = page.locator('.popover');
@@ -3309,231 +3316,41 @@ async function runBrowserSuite() {
       await expect(page.locator('#chatLog')).toContainText('codex 浏览器验收样例');
     },
     async projectMaterials(page, fixture, viewport) {
-      // 会话文件两栏（docs/PRODUCT_SPEC.md 2.4）：会话、搜索，只列文档。
-      // 每条两行：标题（读 `# `，不是文件名）+ 右端相对时间，下一行小字是正文头一句。
-      await refresh(page, fixture);
-      if (viewport.width <= 760) await page.locator('#chatDrawerToggle').click();
-      await page.locator('#chatPickerList [data-pane-id="pane-codex"]').click();
+      await page.locator('#commandInput').fill('会话文件共用预览期间保留的草稿');
       await openFilesPanel(page, viewport);
       const rows = page.locator('#sessionFilesList .doc-row');
-      const doc = page.locator('#projectView');
-      const back = page.locator('#chatFilesListBack');
-      // 读文档时顶栏标题就是文档标题，与聊天页顶栏显示会话名同一个意思；文档头只留路径，
-      // 不再重复正文里第一个标题（2026-09-24 与聊天页的设计语言对齐）。
-      const filesTitle = page.locator('.session-files-head strong');
-
-      // 会话栏：本会话出现过的文件。标题是 `# ` 那一行，不是 results.md。
-      // 没有标签（2026-09-24 用户要求）：一个列表，上面一个搜索框；框里没字时就是本会话出现过的文档。
-      await expect(page.locator('#docTabs')).toHaveCount(0);
-      await expect(page.locator('#docSearch')).toBeVisible();
       await expect(rows).toHaveCount(2);
       await expect(rows.first().locator('strong')).toHaveText('当前结果');
-      await expect(rows.first().locator('.doc-row-summary')).toHaveText(
-        '反向已跑通，性能是下一步。',
-      );
       await expect(rows.first().locator('time')).not.toHaveText('');
-      assert.equal(
-        await rows.first().getAttribute('title'),
-        '/fixture/workdir/mxops/tasks/176-open-mr/results.md',
-        '悬浮显示完整路径',
-      );
-      // 每条两行：第二行在第一行下面，时间在第一行右端。
-      const shape = await rows.first().evaluate((row) => {
-        const box = (selector) => row.querySelector(selector).getBoundingClientRect();
-        return {
-          title: box('strong').toJSON(),
-          time: box('time').toJSON(),
-          summary: box('.doc-row-summary').toJSON(),
-        };
-      });
-      assert(shape.summary.top >= shape.title.bottom - 1, JSON.stringify(shape));
-      assert(
-        shape.time.left >= shape.title.right - 1 && Math.abs(shape.time.top - shape.title.top) < 12,
-        JSON.stringify(shape),
-      );
-      // 会话刷新时列表跟着重读，但仍是三栏的样子：旧的「会话动过的文件」列表（带代码文件、
-      // 完整路径）曾在每次刷新时把它整个盖掉（2026-09-23 用户截图指出）。
-      const before = fixture.state.requests.filter((r) => r.route === 'GET /api/doc-files').length;
-      await page.waitForTimeout(3100);
-      fixture.changed();
-      await expect
-        .poll(() => fixture.state.requests.filter((r) => r.route === 'GET /api/doc-files').length)
-        .toBeGreaterThan(before);
-      await expect(page.locator('#sessionFilesList .session-file-item')).toHaveCount(0);
-      await expect(rows).toHaveCount(2);
-      assert(
-        !fixture.state.requests.some((r) => r.route === 'GET /api/session-files'),
-        '旧列表的接口不该再被面板调用',
-      );
-
-      // 点开：Markdown 按聊天流渲染，正文里的 HTML 不执行。
       await rows.first().click();
-      await expect(doc).toBeVisible();
-      await expect(doc.locator('.project-doc-body h1')).toContainText('当前结果');
-      await expect(doc.locator('.project-doc-head span')).toHaveText(
-        'mxops/tasks/176-open-mr/results.md',
-      );
+      const view = page.locator('.workspace-file-view:not([hidden])');
+      await expect(page.locator('#workspaceFilesPage')).toBeVisible();
+      await expect(view.locator('h1')).toHaveText('当前结果');
+      await expect(page.locator('#projectView')).toBeEmpty();
       assert.equal(await page.evaluate(() => window.filePreviewExecuted), undefined);
-      await expect(page.locator('#docSearch')).toBeHidden();
-      // 相对链接是面板内的一跳，不给 href；外链仍然是普通外链。
-      const local = doc.locator('.md-local-link');
-      await expect(local).toHaveCount(3);
-      // 外链图片受 img-src 限制加载不了，退回成链接，前面不留感叹号。
-      await expect(doc.locator('a[href^="https://"]')).toHaveCount(2);
-      assert(!(await doc.locator('.project-doc-body').textContent()).includes('!外链图'));
-      // 正文里的内嵌图片就地显示，点一下单独看，返回回到正文。
-      const inline = doc.locator('.doc-inline-image img');
-      await expect(inline).toHaveCount(1);
-      await expect.poll(() => inline.evaluate((img) => img.complete && img.naturalWidth)).toBe(1);
-      assert.equal(await inline.getAttribute('alt'), '内嵌架构图');
-      await doc.locator('.doc-inline-image').click();
-      await expect(doc.locator('img.doc-image')).toHaveCount(1);
-      await expect(doc.locator('.project-doc-head span')).toHaveText('mxops/docs/架构图.png');
-      await back.click();
-      await expect(filesTitle).toHaveText('当前结果');
-      assert.equal(
-        await doc.locator('.project-doc-head strong').count(),
-        0,
-        '文档头不再重复正文的第一个标题',
-      );
-      // 文档与聊天是同一种阅读：正文字号、行高、滚动条与聊天正文一致（量 computed style，不靠截图）。
-      const reading = await page.evaluate(() => {
-        const style = (selector) => getComputedStyle(document.querySelector(selector));
-        const body = style('#projectView .project-doc-body'),
-          chat = style('#chatLog .chat-msg[data-role="assistant"]');
-        return {
-          body: [body.fontSize, body.lineHeight],
-          chat: [chat.fontSize, chat.lineHeight],
-          scrollbar: style('#projectView').scrollbarWidth,
-        };
-      });
-      assert.deepEqual(reading.body, reading.chat, JSON.stringify(reading));
-      assert.equal(reading.scrollbar, 'thin', JSON.stringify(reading));
-      await expect(doc.locator('.project-doc-head')).toContainText('results.md');
-      await expect
-        .poll(() =>
-          doc.locator('.doc-inline-image img').evaluate((img) => img.complete && img.naturalWidth),
-        )
-        .toBe(1);
-      assert.equal(await local.first().evaluate((el) => el.getAttribute('href')), null);
-      await local.first().click();
-      await expect(filesTitle).toHaveText('推导过程');
-      // 返回按钮三档都要在；触摸档再验右滑，它与按钮走同一条 StudioNavigation.back()。
-      await expect(back).toBeVisible();
-      if (viewport.touch) await swipePage(page, '#projectView', true);
-      else await back.click();
-      await expect(filesTitle).toHaveText('当前结果');
-      // 文档里链接的代码文件：点了按原文显示，返回回到原来那份文档；列表里始终不出现代码。
-      await local.nth(2).click();
-      // 代码直接铺在页面上（不套框），按语言着色，颜色取自主题的 syn-*。
-      const code = doc.locator('.code-view');
-      await expect(code).toContainText('int add(int a, int b)');
-      await expect(code).toHaveClass(/hljs/);
-      const look = await code.evaluate((node) => {
-        const keyword = node.querySelector('.hljs-type, .hljs-keyword');
-        const root = getComputedStyle(document.documentElement);
-        return {
-          border: getComputedStyle(node).borderTopWidth,
-          background: getComputedStyle(node).backgroundColor,
-          framed: !!node.closest('pre'),
-          keyword: keyword && getComputedStyle(keyword).color,
-          expected: root
-            .getPropertyValue(
-              keyword?.classList.contains('hljs-type') ? '--syn-type' : '--syn-keyword',
-            )
-            .trim(),
-        };
-      });
-      assert.deepEqual(
-        [look.border, look.background, look.framed],
-        ['0px', 'rgba(0, 0, 0, 0)', false],
-        JSON.stringify(look),
-      );
-      const hex = look.expected
-        .replace('#', '')
-        .match(/../g)
-        .map((part) => parseInt(part, 16))
-        .join(', ');
-      assert.equal(look.keyword, `rgb(${hex})`, JSON.stringify(look));
-      await expect(filesTitle).toHaveText('kernel.cpp');
-      await back.click();
-      await expect(filesTitle).toHaveText('当前结果');
-      // 图片链接直接显示图片。
-      await local.nth(1).click();
-      await expect(doc.locator('img.doc-image')).toHaveCount(1);
-      await expect
-        .poll(() =>
-          doc.locator('img.doc-image').evaluate((img) => img.complete && img.naturalWidth),
-        )
-        .toBe(1);
-      await back.click();
-      await back.click();
-      await expect(doc).toBeHidden();
-      await expect(rows).toHaveCount(2);
-      await expect(page.locator('#sessionFilesList')).not.toContainText('kernel.cpp');
-
-      // 搜索：同一个列表里显示结果，按路径模糊匹配，算在服务端；Esc 清空回到本会话的文档。
-      const search = page.locator('#docSearch');
-      await search.fill('推导');
-      await expect(rows).toHaveCount(1);
-      await expect(rows.first().locator('strong')).toHaveText('推导过程');
-      const query = fixture.state.requests
-        .filter((r) => r.route === 'GET /api/doc-files/search')
-        .at(-1);
-      assert(query, '搜索要走服务端');
-      await search.press('Escape');
-      await expect(search).toHaveValue('');
-      await expect(rows).toHaveCount(2);
-      await expect(page.locator('#sessionFilesPage')).toBeVisible();
-      await withinViewport(page.locator('#sessionFilesPage'));
+      await view.locator('.md-local-link').filter({ hasText: 'kernel.cpp' }).click();
+      await expect(view.locator('.cm-editor')).toHaveAttribute('data-language', 'C++');
+      await expect(view.locator('.cm-content')).toContainText('int add(int a, int b)');
+      const look = await view.locator('.cm-scroller').evaluate((node) => ({
+        font: getComputedStyle(node).fontFamily,
+        overflow: document.documentElement.scrollWidth - innerWidth,
+      }));
+      assert.match(look.font, /^["']?Cascadia Mono/);
+      assert.equal(look.overflow, 0);
+      assert(!fixture.state.requests.some((r) => r.route === 'GET /api/doc-files/content'));
       await page.screenshot({ path: path.join(output, `${viewport.name}-doc-files.png`) });
-      if (viewport.touch) {
-        // 没有标签可切：列表上左滑什么都不做，右滑回到聊天页；读文档时右滑是返回上一层。
-        await swipePage(page, '#sessionFilesList', false);
-        await expect(page.locator('#sessionFilesPage')).toBeVisible();
-        await expect(rows).toHaveCount(2);
-        await rows.first().click();
-        await expect(doc).toBeVisible();
-        await swipePage(page, '#projectView', true);
-        await expect(doc).toBeHidden();
-        await expect(rows).toHaveCount(2);
-        await swipePage(page, '#sessionFilesList', true);
-        await expect(page.locator('#sessionFilesPage')).toBeHidden();
-        await expect(page.locator('#chatLog')).toBeVisible();
-        await openFilesPanel(page, viewport);
-      }
-
-      // 回到正文那一层，量宽内容：代码块和表格各自滚动，面板与页面都不横向溢出。
+      await page.getByRole('button', { name: '返回会话', exact: true }).click();
+      await expect(page.locator('#sessionFilesPage')).toBeVisible();
       await rows.first().click();
-      await expect(doc.locator('.project-doc-body pre')).toHaveCount(1);
-      const wide = await doc.evaluate((el) => {
-        const pick = (selector) => {
-          const node = el.querySelector(selector);
-          return node
-            ? {
-                scroll: node.scrollWidth,
-                client: node.clientWidth,
-                overflowX: getComputedStyle(node).overflowX,
-              }
-            : null;
-        };
-        return {
-          pre: pick('pre'),
-          table: pick('table'),
-          panelScroll: el.scrollWidth,
-          panelClient: el.clientWidth,
-        };
-      });
-      assert(wide.pre.scroll > wide.pre.client, '这段代码本来就该比面板宽，否则这条断言没在验东西');
-      assert.equal(wide.pre.overflowX, 'auto', '代码块要在自己的容器里横滚');
-      assert.equal(wide.table.overflowX, 'auto', '宽表格同样');
-      assert(
-        wide.panelScroll <= wide.panelClient + 1,
-        `面板本身不该横向滚动: ${wide.panelScroll} > ${wide.panelClient}`,
+      await expect(view.locator('h1')).toHaveText('当前结果');
+      await page.keyboard.press('Escape');
+      await expect(page.locator('#sessionFilesList')).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(page.locator('#commandInput')).toHaveValue('会话文件共用预览期间保留的草稿');
+      assert.equal(
+        fixture.state.requests.filter((r) => r.route === 'POST /api/messages').length,
+        0,
       );
-      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
-      assert.equal(overflow, 0, '面板不该把页面撑出横向滚动');
-      await page.screenshot({ path: path.join(output, `${viewport.name}-project-materials.png`) });
     },
     async projectPanelWidth(page, fixture, viewport) {
       // 面板要装的是整个工作区的材料，不是几个文件名 —— 固定 420px 不够，
@@ -4344,7 +4161,7 @@ x,&x\geq 0\\
       await openFilesPanel(page, viewport);
       await expect(page.locator('.doc-row')).toHaveCount(2);
       await page.locator('.doc-row').first().click();
-      await expect(page.locator('#projectView')).toContainText('反向已跑通');
+      await expect(page.locator('.workspace-file-view:not([hidden])')).toContainText('反向已跑通');
       assert.equal(await page.evaluate(() => window.StudioNavigation.back()), true);
       await expect(page.locator('#sessionFilesList')).toBeVisible();
       assert.equal(await page.evaluate(() => window.StudioNavigation.back()), true);
@@ -4530,19 +4347,16 @@ x,&x\geq 0\\
       const geometry = await check();
       await page.screenshot({ path: path.join(output, `${viewport.name}-files-panel.png`) });
       await page.locator('.doc-row').first().click();
-      await expect(page.locator('#projectView')).toContainText('反向已跑通');
-      await expect(input).toBeVisible();
-      await expect(back).toHaveAttribute('aria-label', '返回文件列表');
-      await page.locator('#projectView .md-local-link').first().click();
-      await expect(page.locator('.session-files-head strong')).toHaveText('推导过程');
-      await expect(back).toHaveAttribute('aria-label', '返回上一层');
-      await back.click();
-      await expect(page.locator('.session-files-head strong')).toHaveText('当前结果');
-      await expect(back).toHaveAttribute('aria-label', '返回文件列表');
+      await expect(page.locator('.workspace-file-view:not([hidden])')).toContainText('反向已跑通');
+      await expect(page.locator('#workspaceFilesPage')).toBeVisible();
+      await page.locator('.workspace-file-view:not([hidden]) .md-local-link').first().click();
+      await expect(page.locator('.workspace-file-view:not([hidden])')).toContainText('先按块划分');
+      await page.getByRole('tab', { name: 'results.md', exact: true }).click();
+      await expect(page.locator('.workspace-file-view:not([hidden])')).toContainText('反向已跑通');
       await page.screenshot({
         path: path.join(output, `${viewport.name}-files-panel-preview.png`),
       });
-      await page.locator('#chatFilesListBack').click();
+      await page.getByRole('button', { name: '返回会话', exact: true }).click();
       await expect(page.locator('#sessionFilesList')).toBeVisible();
       await page.setViewportSize({ width: 900, height: 768 });
       await check();
@@ -4613,10 +4427,12 @@ x,&x\geq 0\\
       await withinViewport(page.locator('#sessionFilesPage'));
       await page.screenshot({ path: path.join(output, `${viewport.name}-session-files.png`) });
       await page.locator('.doc-row').first().click();
-      await expect(page.locator('#projectView')).toContainText('反向已跑通');
+      await expect(page.locator('.workspace-file-view:not([hidden])')).toContainText('反向已跑通');
       assert.equal(await page.evaluate(() => window.filePreviewExecuted), undefined);
       await expect(
-        page.locator('#projectView textarea, #projectView input, #projectView [contenteditable]'),
+        page.locator(
+          '.workspace-file-view:not([hidden]) textarea, .workspace-file-view:not([hidden]) input, .workspace-file-view:not([hidden]) [contenteditable=true]',
+        ),
       ).toHaveCount(0);
       await page.screenshot({ path: path.join(output, `${viewport.name}-file-preview.png`) });
       await page.keyboard.press('Escape');

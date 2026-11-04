@@ -94,6 +94,7 @@ module.exports = async (page, fixture, viewport, { output, refresh, switchTo, ti
   const write = page.locator('[data-tool-key="pane-codex:color-write"]');
   await write.locator('summary').click();
   await expect(write.locator('code.hljs')).toHaveCount(1);
+  await page.evaluate(() => document.fonts.ready);
   const measurements = [];
   for (const theme of ['default', 'light']) {
     await page.evaluate((theme) => StudioDeviceTheme.apply(theme), theme);
@@ -125,6 +126,10 @@ module.exports = async (page, fixture, viewport, { output, refresh, switchTo, ti
         codeText: firstCode.textContent,
         keyword: style(firstCode.querySelector('.hljs-keyword')).color,
         code: style(firstCode).color,
+        codeFont: style(firstCode).fontFamily,
+        toolFont: style(document.querySelector('[data-tool-key="pane-codex:color-write"] code'))
+          .fontFamily,
+        fontLoaded: document.fonts.check('14px "Cascadia Mono"'),
         pass: style(spans.find((span) => span.textContent.includes('PASS'))).color,
         warn: style(spans.find((span) => span.textContent === 'WARN')).color,
         rgb: style(spans.find((span) => span.textContent === 'RGB')).color,
@@ -138,6 +143,9 @@ module.exports = async (page, fixture, viewport, { output, refresh, switchTo, ti
       };
     });
     assert.notEqual(result.keyword, result.code);
+    assert.match(result.codeFont, /^["']?Cascadia Mono/);
+    assert.equal(result.toolFont, result.codeFont);
+    assert.equal(result.fontLoaded, true);
     assert.notEqual(result.pass, result.reset);
     assert.equal(result.warn, 'rgb(255, 175, 0)');
     assert.equal(result.rgb, 'rgb(140, 120, 210)');

@@ -155,10 +155,45 @@ const root = path.resolve(__dirname, '../..'),
           if (!page.isClosed()) await route.abort().catch(() => {});
         }
       });
+      await context.route(/\/api\/doc-files(?:\?|\/search\?)/, (route) =>
+        route.fulfill({
+          json: {
+            files: [
+              {
+                path: path.join(directory, 'knowledge/guide.md'),
+                kind: 'markdown',
+                title: '文件浏览',
+                summary: '共用文件页',
+              },
+            ],
+          },
+        }),
+      );
       try {
         await page.goto(fixture.url + '/?token=fixture&pane=pane-codex');
         await expect(page.locator('#commandInput')).toBeVisible();
         await page.locator('#commandInput').fill('文件阅读期间保留草稿');
+        await page.locator('#chatFilesToggle').dispatchEvent('click');
+        await page.locator('#sessionFilesList .doc-row').click();
+        const sharedView = page.locator('.workspace-file-view:not([hidden])');
+        await expect(sharedView.locator('h1')).toHaveText('文件浏览');
+        await expect(page.locator('#projectView')).toBeEmpty();
+        await sharedView.evaluate((node) => {
+          window.sessionFileView = node;
+        });
+        await page.getByRole('button', { name: '返回会话', exact: true }).click();
+        await expect(page.locator('#sessionFilesPage')).toBeVisible();
+        await page.locator('#sessionFilesList .doc-row').click();
+        assert(
+          await sharedView.evaluate((node) => window.sessionFileView === node),
+          '会话文件和files页共用同一文件实例',
+        );
+        await page.getByRole('button', { name: '返回会话', exact: true }).click();
+        await page.locator('#chatFilesToggle').dispatchEvent('click');
+        await expect(page.locator('#commandInput')).toHaveValue('文件阅读期间保留草稿');
+        assert(
+          !fixture.state.requests.some((entry) => entry.route === 'GET /api/doc-files/content'),
+        );
         if (await page.locator('#chatDrawerToggle').isVisible())
           await page.locator('#chatDrawerToggle').click();
         await page.locator('#sidebarFiles').click();
@@ -206,9 +241,23 @@ const root = path.resolve(__dirname, '../..'),
         const header = await page.evaluate(() => {
           const left = document.querySelector('.chat-sidebar-top').getBoundingClientRect();
           const right = document.querySelector('.workspace-files-header').getBoundingClientRect();
-          return { leftBottom: left.bottom, rightBottom: right.bottom, height: right.height };
+          const root = document.querySelector('.workspace-tree-header').getBoundingClientRect();
+          const path = document.querySelector('.workspace-file-toolbar').getBoundingClientRect();
+          return {
+            leftBottom: left.bottom,
+            rightBottom: right.bottom,
+            height: right.height,
+            rootTop: root.top,
+            rootBottom: root.bottom,
+            pathTop: path.top,
+            pathBottom: path.bottom,
+          };
         });
         assert(Math.abs(header.leftBottom - header.rightBottom) < 1, JSON.stringify(header));
+        if (viewport.width > 760) {
+          assert(Math.abs(header.rootTop - header.pathTop) < 1, JSON.stringify(header));
+          assert(Math.abs(header.rootBottom - header.pathBottom) < 1, JSON.stringify(header));
+        }
         if (viewport.width > 760) {
           await expect(page.locator('.workspace-files-sidebar')).toBeHidden();
           await page.locator('#chatSidebarCollapse').click();
@@ -334,6 +383,13 @@ const root = path.resolve(__dirname, '../..'),
               .locator('#workspaceFilesPage')
               .evaluate((node) => node.style.getPropertyValue('--workspace-markdown-width')),
             editing.readingWidth,
+          );
+        if (editing.outlineWidth)
+          assert.equal(
+            await page
+              .locator('#workspaceFilesPage')
+              .evaluate((node) => node.style.getPropertyValue('--workspace-outline-width')),
+            editing.outlineWidth,
           );
         if (!viewport.touch) {
           await page.getByRole('button', { name: '返回会话', exact: true }).click();

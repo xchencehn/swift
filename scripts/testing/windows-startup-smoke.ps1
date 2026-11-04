@@ -37,7 +37,7 @@ public static class SwiftStartup {
    return false;
   } finally {if(!process.HasExited){try{process.Kill();}catch(System.ComponentModel.Win32Exception){if(!process.WaitForExit(5000))throw;}}process.Dispose();}
  }
- public static Sample Measure(string executable,string filmstrip) {
+ public static Sample Measure(string executable,string filmstrip,bool settleBeforeClose) {
   var result=new Sample();var watch=Stopwatch.StartNew();var process=Process.Start(executable);IntPtr window=IntPtr.Zero;
   var images=new List<Bitmap>();long nextImage=0;
   try {
@@ -71,7 +71,7 @@ public static class SwiftStartup {
    if(images.Count>0)using(var strip=new Bitmap(320*4,215*3)){using(var g=Graphics.FromImage(strip)){g.Clear(Color.FromArgb(23,23,26));for(int i=0;i<images.Count;i++)g.DrawImageUnscaled(images[i],(i%4)*320,(i/4)*215);}strip.Save(filmstrip,ImageFormat.Png);}
   } finally {
    foreach(var image in images)image.Dispose();
-   if(!process.HasExited && window!=IntPtr.Zero){PostMessage(window,0x10,IntPtr.Zero,IntPtr.Zero);result.closedCleanly=process.WaitForExit(10000);if(!result.closedCleanly){try{process.Kill();}catch(System.ComponentModel.Win32Exception){if(!process.WaitForExit(5000))throw;}}}
+   if(!process.HasExited && window!=IntPtr.Zero){if(settleBeforeClose)Thread.Sleep(2000);PostMessage(window,0x10,IntPtr.Zero,IntPtr.Zero);result.closedCleanly=process.WaitForExit(10000);if(!result.closedCleanly){try{process.Kill();}catch(System.ComponentModel.Win32Exception){if(!process.WaitForExit(5000))throw;}}}
    process.Dispose();
   }
   return result;
@@ -96,7 +96,7 @@ foreach($kind in @('empty','saved','many')) {
  $sampleCount=if($env:SWIFT_WINDOWS_STARTUP_SAMPLES){[int]$env:SWIFT_WINDOWS_STARTUP_SAMPLES}else{5}
  for($i=0;$i -lt $sampleCount;$i++) {
   $filmstrip=if($i -eq 0){Join-Path $OutputDirectory ('native-startup-'+$kind+'.png')}else{$null}
-  $sample=[SwiftStartup]::Measure($Executable,$filmstrip)
+  $sample=[SwiftStartup]::Measure($Executable,$filmstrip,($kind -eq 'saved' -and $i -eq $sampleCount-1))
   $samples+=$sample
   if($env:SWIFT_WINDOWS_STARTUP_PROGRESS){
    $progress=[Net.WebClient]::new();$progress.Proxy=$null
@@ -107,9 +107,17 @@ foreach($kind in @('empty','saved','many')) {
  $timed=if($samples.Count -gt 1){@($samples|Select-Object -Skip 1)}else{$samples}
  $whiteFrames=@($samples|ForEach-Object {$_.frames}|Where-Object {$_.white -gt .85}).Count
  $scenarios+=@{name=$kind;samples=$samples;timingSamples=$timed.Count;firstRunVisibleMs=$samples[0].visibleMs;firstRunContentMs=$samples[0].contentMs;visibleP50Ms=(Percentile @($timed.visibleMs) .5);visibleP95Ms=(Percentile @($timed.visibleMs) .95);contentP50Ms=(Percentile @($timed.contentMs) .5);contentP95Ms=(Percentile @($timed.contentMs) .95);whiteFrames=$whiteFrames;geometryStable=(@($samples|Where-Object {-not $_.geometryStable}).Count -eq 0)}
+ if($kind -eq 'saved') {
+  # Only inspect the synthetic client's own storage after a normal native close.
+  $bootCachePersisted=$false
+  foreach($file in @(Get-ChildItem -LiteralPath (Join-Path $directory 'webview') -Recurse -File|Where-Object {$_.FullName -match 'Local Storage[\\/]leveldb[\\/]' -and $_.Extension -in @('.log','.ldb')})) {
+   $bytes=[IO.File]::ReadAllBytes($file.FullName)
+   if([Text.Encoding]::UTF8.GetString($bytes).Contains('agentStudioBoot') -or [Text.Encoding]::Unicode.GetString($bytes).Contains('agentStudioBoot')){$bootCachePersisted=$true}
+  }
+ }
 }
 $closedDuringStartup=[SwiftStartup]::CloseDuringStartup($Executable)
-$ok=$closedDuringStartup -and @($scenarios|ForEach-Object {$_.samples}|Where-Object {$_.contentMs -lt 0 -or $_.exited -or -not $_.closedCleanly}).Count -eq 0
-@{ok=$ok;closedDuringStartup=$closedDuringStartup;target='wecom-desktop';frameCapture='PrintWindow of the isolated Swift client area; no screen capture';scenarios=$scenarios}|ConvertTo-Json -Depth 8|Set-Content -Encoding UTF8 (Join-Path $OutputDirectory 'native-startup.json')
+$ok=$closedDuringStartup -and $bootCachePersisted -and @($scenarios|ForEach-Object {$_.samples}|Where-Object {$_.contentMs -lt 0 -or $_.exited -or -not $_.closedCleanly}).Count -eq 0
+@{ok=$ok;closedDuringStartup=$closedDuringStartup;bootCachePersisted=$bootCachePersisted;target='wecom-desktop';frameCapture='PrintWindow of the isolated Swift client area; no screen capture';scenarios=$scenarios}|ConvertTo-Json -Depth 8|Set-Content -Encoding UTF8 (Join-Path $OutputDirectory 'native-startup.json')
 # Keep the complete receipt even when startup or early-close acceptance fails.
 # The Node runner reports failure after preserving all samples.

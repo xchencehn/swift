@@ -1,4 +1,7 @@
 /* DeepSeek Harness tree geometry adapted to Swift's existing theme tokens. */
+.chat-sidebar:has(#workspaceFilesTree:not([hidden])) .chat-sidebar-top {
+  margin-bottom: 0;
+}
 .workspace-files-tree {
   display: flex;
   flex: 1;
@@ -11,7 +14,9 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  min-height: 38px;
+  flex: none;
+  height: var(--file-toolbar-height, 38px);
+  min-height: var(--file-toolbar-height, 38px);
   padding: 0 8px 0 16px;
   border-bottom: 1px solid var(--line);
 }
@@ -19,9 +24,7 @@
   flex: 1;
   min-width: 0;
   color: var(--muted);
-  font:
-    calc(11px * var(--device-font-scale, 1))/1.5 ui-monospace,
-    monospace;
+  font: calc(12px * var(--device-font-scale, 1))/20px var(--font-mono);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -36,36 +39,63 @@
   overscroll-behavior: contain;
   margin-inline-end: -12px;
   padding: 8px 16px 8px 4px;
+  scrollbar-color: rgba(var(--surface-rgb, 255, 255, 255), 0.08) transparent;
+}
+:is(.workspace-tree-body, .workspace-markdown-reader, .workspace-file-outline) {
   scrollbar-width: thin;
   scrollbar-color: rgba(var(--surface-rgb, 255, 255, 255), 0.08) transparent;
 }
-.workspace-tree-body::-webkit-scrollbar {
+:is(.workspace-tree-body, .workspace-markdown-reader, .workspace-file-outline)::-webkit-scrollbar {
   width: 2px;
   height: 2px;
 }
-.workspace-tree-body::-webkit-scrollbar-track,
-.workspace-tree-body::-webkit-scrollbar-corner {
+:is(
+  .workspace-tree-body,
+  .workspace-markdown-reader,
+  .workspace-file-outline
+)::-webkit-scrollbar-track,
+:is(
+  .workspace-tree-body,
+  .workspace-markdown-reader,
+  .workspace-file-outline
+)::-webkit-scrollbar-corner {
   background: transparent;
 }
-.workspace-tree-body::-webkit-scrollbar-thumb {
+:is(
+  .workspace-tree-body,
+  .workspace-markdown-reader,
+  .workspace-file-outline
+)::-webkit-scrollbar-thumb {
   border: 0;
   border-radius: 1px;
   background: rgba(var(--surface-rgb, 255, 255, 255), 0.08);
 }
-.workspace-tree-body::-webkit-scrollbar-thumb:hover {
+:is(
+    .workspace-tree-body,
+    .workspace-markdown-reader,
+    .workspace-file-outline
+  )::-webkit-scrollbar-thumb:hover {
   background: rgba(var(--surface-rgb, 255, 255, 255), 0.18);
 }
-.workspace-tree-body::-webkit-scrollbar-thumb:active {
+:is(
+    .workspace-tree-body,
+    .workspace-markdown-reader,
+    .workspace-file-outline
+  )::-webkit-scrollbar-thumb:active {
   background: rgba(var(--surface-rgb, 255, 255, 255), 0.26);
 }
-.workspace-tree-body::-webkit-scrollbar-button {
+:is(
+  .workspace-tree-body,
+  .workspace-markdown-reader,
+  .workspace-file-outline
+)::-webkit-scrollbar-button {
   display: none;
   width: 0;
   height: 0;
 }
 @supports selector(::-webkit-scrollbar) {
   /* Chromium's standard scrollbar properties otherwise override the 2px native styling. */
-  .workspace-tree-body {
+  :is(.workspace-tree-body, .workspace-markdown-reader, .workspace-file-outline) {
     scrollbar-width: auto;
     scrollbar-color: auto;
   }
@@ -262,7 +292,7 @@
   align-items: center;
   gap: 4px;
   min-width: 0;
-  min-height: 38px;
+  min-height: var(--file-toolbar-height, 38px);
   border-bottom: 1px solid var(--line);
   padding: 0 10px;
 }
@@ -442,7 +472,11 @@ iframe.workspace-file-media {
 }
 .workspace-markdown-view {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) clamp(176px, 19%, 240px);
+  grid-template-columns: minmax(0, 1fr) clamp(
+      160px,
+      var(--workspace-outline-width, clamp(176px, 19%, 240px)),
+      min(480px, 50%)
+    );
   padding: 0;
   overflow: hidden;
 }
@@ -452,7 +486,6 @@ iframe.workspace-file-media {
   overflow: auto;
   padding: 20px 24px 60px;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
 }
 .workspace-markdown-reader > .workspace-file-document {
   width: min(100%, var(--workspace-markdown-width, 900px));
@@ -467,7 +500,6 @@ iframe.workspace-file-media {
   overflow: auto;
   padding: 16px 12px 32px;
   border-left: 1px solid var(--line);
-  scrollbar-width: thin;
   background: var(--bg);
 }
 .workspace-outline-title {
@@ -520,6 +552,30 @@ iframe.workspace-file-media {
 }
 .workspace-markdown-view.outline-closed .workspace-file-outline {
   display: none;
+}
+.workspace-outline-resizer {
+  position: absolute;
+  inset-block: 0;
+  z-index: 2;
+  width: 12px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.workspace-outline-resizer::after {
+  content: '';
+  position: absolute;
+  inset: 0 5px;
+  background: var(--muted);
+  opacity: 0;
+}
+.workspace-outline-resizer:hover::after,
+.workspace-outline-resizer:focus-visible::after,
+.resizing-chat-content .workspace-outline-resizer::after {
+  opacity: 0.35;
+}
+.workspace-outline-resizer:focus-visible {
+  outline: 1px solid var(--muted);
+  outline-offset: -2px;
 }
 .workspace-markdown-resizer {
   position: absolute;
@@ -582,6 +638,10 @@ iframe.workspace-file-media {
   }
 }
 @media (pointer: coarse) {
+  .workspace-files-tree,
+  .workspace-files-page {
+    --file-toolbar-height: 45px;
+  }
   .workspace-tree-row {
     min-height: 40px;
   }

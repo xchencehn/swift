@@ -54,7 +54,7 @@ async function main() {
       );
       fs.writeFileSync(
         path.join(workspaceDirectory, 'windows-file.md'),
-        '# Windows 文件验收\n\n读取与修改临时文件。\n\n## 保存操作\n\n这里是第二节。\n',
+        '# Windows 文件验收\n\n读取与修改临时文件。\n\n```javascript\nconst answer = "中文高亮";\nconsole.log(answer, 42);\n```\n\n## 保存操作\n\n这里是第二节。\n',
       );
     }
     tokenFixture = await createTokenFixture({

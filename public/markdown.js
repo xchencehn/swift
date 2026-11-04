@@ -345,5 +345,54 @@
     }
   }
 
-  return { renderMarkdown, renderMarkdownWithLinks, safeHref };
+  /** 聊天与文件预览共用代码块操作；换行状态仍由各自窗口持有。 */
+  function decorateCodeBlock(pre, { copyText, wrap = true, onWrap = () => {} }) {
+    const code = pre.querySelector('code');
+    if (!code || pre.querySelector('.code-actions')) return;
+    const source = code.textContent;
+    const actions = document.createElement('div');
+    actions.className = 'code-actions';
+    const action = (name, path, label) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = name;
+      button.title = label;
+      button.setAttribute('aria-label', label);
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('viewBox', '0 0 24 24');
+      svg.setAttribute('aria-hidden', 'true');
+      const line = document.createElementNS(svg.namespaceURI, 'path');
+      line.setAttribute('d', path);
+      svg.append(line);
+      const text = document.createElement('span');
+      text.className = 'visually-hidden';
+      text.textContent = label;
+      button.append(svg, text);
+      actions.append(button);
+      return { button, text };
+    };
+    const toggle = action(
+      'code-wrap',
+      'M4 6h16M4 11h12a4 4 0 0 1 0 8h-4m3-3-3 3 3 3M4 16h3',
+      '自动换行',
+    );
+    const paintWrap = (enabled) => {
+      pre.dataset.wrap = enabled ? 'on' : 'off';
+      toggle.text.textContent = enabled ? '自动换行' : '不换行';
+      toggle.button.setAttribute('aria-pressed', String(enabled));
+      toggle.button.title = enabled ? '关闭自动换行' : '开启自动换行';
+      toggle.button.setAttribute('aria-label', toggle.button.title);
+    };
+    paintWrap(wrap);
+    toggle.button.addEventListener('click', () => {
+      const enabled = pre.dataset.wrap !== 'on';
+      paintWrap(enabled);
+      onWrap(enabled);
+    });
+    const copy = action('code-copy copy-action', 'M9 9h11v12H9ZM15 9V3H3v12h6', '复制代码');
+    copy.button.addEventListener('click', () => copyText(source, copy.button));
+    pre.prepend(actions);
+  }
+
+  return { renderMarkdown, renderMarkdownWithLinks, decorateCodeBlock, safeHref };
 });

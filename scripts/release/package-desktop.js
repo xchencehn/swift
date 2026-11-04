@@ -54,7 +54,7 @@ fs.writeFileSync(
 const latest = {
   version,
   notes:
-    '修复共享存档目录与工作目录变化导致的会话读取失败，优先同步当前会话，并启用桌面 HTTP 与会话同步 gzip 压缩。',
+    '统一聊天与Markdown预览代码框，采用细边框和彩色语法，右上角提供复制与换行操作，支持浅色主题和触屏。',
   pub_date: new Date().toISOString(),
   platforms: {
     'windows-x86_64': {

@@ -1,6 +1,6 @@
 {
   "name": "swift",
-  "version": "0.20.4",
+  "version": "0.22.1",
   "private": true,
   "license": "Apache-2.0",
   "description": "Swift: direct server and clients for native Agent sessions",

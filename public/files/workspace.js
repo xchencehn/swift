@@ -92,7 +92,8 @@
       epoch = 0,
       sidebarKey = '',
       pendingTreeScroll = null;
-    let readingWidth = null;
+    let readingWidth = null,
+      outlineWidth = null;
     const normalized = (text) => text.replace(/\r\n?/g, '\n');
     const dirty = (tab) => Boolean(tab.editing && tab.editor?.isDirty());
     const storeKey = () => `swiftWorkspaceFiles:${namespace}:${rootPath}`;
@@ -114,6 +115,7 @@
             paths: tabs.map((tab) => tab.path),
             active: active?.path,
             readingWidth,
+            outlineWidth,
           }),
         );
       } catch {
@@ -150,6 +152,7 @@
         saved = JSON.parse(localStorage.getItem(storeKey()) || '{}') || {};
       } catch {}
       setReadingWidth(Number(saved.readingWidth) >= 360 ? Number(saved.readingWidth) : null);
+      setOutlineWidth(Number(saved.outlineWidth) >= 160 ? Number(saved.outlineWidth) : null);
       const inside = (path) =>
         typeof path === 'string' &&
         (path === rootPath || path.startsWith(rootPath.replace(/\/$/, '') + '/'));
@@ -454,6 +457,11 @@
       if (value) page.style.setProperty('--workspace-markdown-width', `${value}px`);
       else page.style.removeProperty('--workspace-markdown-width');
     }
+    function setOutlineWidth(value) {
+      outlineWidth = value;
+      if (value) page.style.setProperty('--workspace-outline-width', `${value}px`);
+      else page.style.removeProperty('--workspace-outline-width');
+    }
     async function discardAllowed(targets) {
       if (targets.some((tab) => tab.saving)) {
         status.textContent = '文件正在保存，请稍后核对结果。';
@@ -495,6 +503,7 @@
     }
     function close(focus = true) {
       if (!shown) return;
+      for (const media of page.querySelectorAll('audio, video')) media.pause();
       closeMenu();
       save();
       shown = false;
@@ -504,11 +513,12 @@
       inert = [];
       if (focus && restoreFocus?.isConnected && !restoreFocus.closest('[hidden]'))
         restoreFocus.focus({ preventScroll: true });
-      onClose?.();
+      onClose?.(focus);
     }
     function selectTab(tab) {
       closeMenu();
       if (active !== tab) {
+        for (const media of active?.view.querySelectorAll('audio, video') || []) media.pause();
         clearTimeout(copy._copyTimer);
         delete copy.dataset.copyState;
         copy.setAttribute('aria-label', '复制全文');
@@ -689,6 +699,7 @@
         tab.view.replaceChildren(
           make('p', 'workspace-file-status', error.message),
           button('重试', () => void loadFile(tab), 'workspace-inline-action'),
+          root.StudioMediaView.download(tab.path, urlFor('download', tab.path)),
         );
       } finally {
         if (current()) {
@@ -699,8 +710,12 @@
       }
     }
     const docView = root.StudioDocView.createDocView({
-      markdown: (source, resolve, image) =>
-        root.StudioMarkdown.renderMarkdownWithLinks(source, resolve, { image }),
+      markdown: (source, resolve, image) => {
+        const fragment = root.StudioMarkdown.renderMarkdownWithLinks(source, resolve, { image });
+        for (const pre of fragment.querySelectorAll('pre'))
+          root.StudioMarkdown.decorateCodeBlock(pre, { copyText });
+        return fragment;
+      },
     });
     async function renderFile(tab, current = () => tabs.includes(tab), signal) {
       tab.cleanup?.();
@@ -715,6 +730,8 @@
       tab.view.replaceChildren();
       const doc = tab.entry,
         container = make('div', 'workspace-file-document');
+      if (doc.kind === 'html' && doc.truncated)
+        throw new Error('HTML 内容不完整，请更新执行端或下载后查看。');
       tab.view.append(container);
       if (typeof doc.text === 'string' && (tab.source || doc.kind === 'code')) {
         tab.view.classList.add('workspace-file-code-view');
@@ -772,6 +789,8 @@
         const img = make('img', 'doc-image');
         img.alt = alt;
         img.loading = 'lazy';
+        img.dataset.downloadUrl = urlFor('download', path);
+        img.dataset.downloadName = path;
         fetchBlob(urlFor('raw', path), { signal })
           .then((blob) => {
             if (!current() || !container.contains(img)) return;
@@ -786,23 +805,33 @@
         return img;
       };
       const source = (target) => root.StudioCodeView.render(target, doc.text, tab.path);
-      if (['image', 'pdf', 'audio', 'video'].includes(doc.kind)) {
-        const blob = await fetchBlob(urlFor('raw', tab.path), { signal });
+      if (
+        root.StudioFileTypes.paginated(doc.kind) ||
+        ['image', 'audio', 'video'].includes(doc.kind)
+      ) {
+        const data = root.StudioFileTypes.paginated(doc.kind)
+          ? await request(urlFor('preview', tab.path), { signal })
+          : { blob: await fetchBlob(urlFor('raw', tab.path), { signal }) };
         if (!current()) return;
-        const url = URL.createObjectURL(blob);
-        tab.urls.push(url);
-        const media = make(
-          doc.kind === 'pdf' ? 'iframe' : doc.kind === 'image' ? 'img' : doc.kind,
-          'workspace-file-media',
+        tab.cleanup = root.StudioMediaView.render(
+          container,
+          { ...data, file: tab.path, kind: doc.kind },
+          {
+            rootDirectory: rootPath,
+            downloadUrl: urlFor('download', tab.path),
+            retry: () => void loadFile(tab),
+            fetchPage: (page, version, options) =>
+              fetchBlob(
+                urlFor('page', tab.path) + '&' + new URLSearchParams({ page, version }),
+                options,
+              ),
+            fetchText: (page, version, options) =>
+              request(
+                urlFor('text', tab.path) + '&' + new URLSearchParams({ page, version }),
+                options,
+              ),
+          },
         );
-        if (doc.kind === 'image') media.alt = tab.path.split('/').pop();
-        if (doc.kind === 'pdf') {
-          media.title = tab.path.split('/').pop();
-          media.setAttribute('sandbox', '');
-        }
-        if (['audio', 'video'].includes(doc.kind)) media.controls = true;
-        media.src = url;
-        container.append(media);
       } else if (doc.kind === 'binary')
         container.append(make('p', 'workspace-file-status', '此文件无法预览，可以保存原文件。'));
       else if (doc.kind === 'html')
@@ -827,6 +856,10 @@
             },
             onOutline: (value) => {
               if (active === tab) outlineToggle.setAttribute('aria-expanded', String(value));
+            },
+            onOutlineWidth: (value) => {
+              setOutlineWidth(value);
+              save();
             },
           });
           tab.cleanup = () => tab.markdown?.close();

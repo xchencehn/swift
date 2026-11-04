@@ -51,6 +51,7 @@ parent.postMessage({type:'link',href:'/fixture/workdir/forged.md'},'*');</script
         window.StudioApp = { authenticationRequired() {} };
       });
       const page = await context.newPage();
+      const view = page.locator('.workspace-file-view:not([hidden])');
       page.setDefaultTimeout(8000);
       const requests = [],
         errors = [];
@@ -59,7 +60,7 @@ parent.postMessage({type:'link',href:'/fixture/workdir/forged.md'},'*');</script
         fail = false,
         truncated = false;
       page.on('pageerror', (error) => errors.push(error.message));
-      await context.route('**/api/doc-files/content?**', async (route) => {
+      await context.route('**/api/workspace-files/content?**', async (route) => {
         const wanted = new URL(route.request().url()).searchParams.get('path');
         requests.push(wanted);
         if (!/\.(html?|md)$/.test(wanted)) return route.continue();
@@ -89,14 +90,14 @@ parent.postMessage({type:'link',href:'/fixture/workdir/forged.md'},'*');</script
         await page.locator('#commandInput').fill('保留聊天草稿');
         await link.click();
         if (baseline) {
-          await expect(page.locator('#projectView .code-view')).toBeVisible();
+          await expect(view.locator('.code-view')).toBeVisible();
           await page.screenshot({ path: path.join(output, `${viewport.name}-before.png`) });
           results.push({ viewport: viewport.name, sourceInsteadOfPage: true });
           continue;
         }
-        const frame = page.frameLocator('.html-document-frame');
+        const frame = page.frameLocator('.workspace-file-view:not([hidden]) .html-document-frame');
         await expect(frame.locator('h1')).toHaveText('HTML 交互报告');
-        await expect(page.locator('.html-document-status')).toBeHidden();
+        await expect(view.locator('.html-document-status')).toBeHidden();
         await frame.locator('#increment').click();
         await expect(frame.locator('output')).toHaveText('1');
         assert.deepEqual(await frame.locator('body').evaluate(() => window.isolation), {
@@ -108,17 +109,17 @@ parent.postMessage({type:'link',href:'/fixture/workdir/forged.md'},'*');</script
         assert(!requests.some((r) => r.includes('forged')));
         await frame.locator('summary').click();
         await expect(frame.locator('details')).toHaveAttribute('open', '');
-        await page.getByRole('button', { name: '源码', exact: true }).click();
-        await expect(page.locator('.html-document-source')).toContainText('<h1>HTML 交互报告</h1>');
-        await page.getByRole('button', { name: '预览', exact: true }).click();
+        await view.getByRole('button', { name: '源码', exact: true }).click();
+        await expect(view.locator('.html-document-source')).toContainText('<h1>HTML 交互报告</h1>');
+        await view.getByRole('button', { name: '预览', exact: true }).click();
         await expect(frame.locator('output')).toHaveText('1');
         await frame.locator('#next').click();
         await expect(frame.locator('h1')).toHaveText('第二份报告');
-        await page.locator('#chatFilesListBack').click();
+        await page.getByRole('tab', { name: file.split('/').pop(), exact: true }).click();
         await expect(frame.locator('h1')).toHaveText('HTML 交互报告');
         if (actual) {
           useActual = true;
-          await page.locator('#chatFilesListBack').click();
+          await page.getByRole('button', { name: '返回会话', exact: true }).click();
           await page.evaluate(
             (path) =>
               window.dispatchEvent(
@@ -133,7 +134,7 @@ parent.postMessage({type:'link',href:'/fixture/workdir/forged.md'},'*');</script
           await frame.locator('#slot').dispatchEvent('input');
           await expect(frame.locator('#mapping-math')).toContainText('owner = 2');
         }
-        const geometry = await page.locator('.html-document-frame').evaluate((el) => ({
+        const geometry = await view.locator('.html-document-frame').evaluate((el) => ({
           width: el.clientWidth,
           height: el.clientHeight,
           overflow: document.documentElement.scrollWidth - innerWidth,
@@ -141,13 +142,9 @@ parent.postMessage({type:'link',href:'/fixture/workdir/forged.md'},'*');</script
         assert(geometry.width > 250 && geometry.height > 300);
         assert.equal(geometry.overflow, 0);
         await page.screenshot({ path: path.join(output, `${viewport.name}-preview.png`) });
-        if (!viewport.touch) {
-          await page.locator('#chatFilesMaximize').click();
-          assert((await page.locator('.html-document-frame').boundingBox()).width > geometry.width);
-          await page.screenshot({ path: path.join(output, `${viewport.name}-maximized.png`) });
-        }
-        await page.locator('#chatFilesListBack').click();
-        await expect(page.locator('.html-document-frame')).toHaveCount(0);
+
+        await page.getByRole('button', { name: '返回会话', exact: true }).click();
+        await expect(view.locator('.html-document-frame')).toBeHidden();
         // Closing during a slow read must not resurrect a report.
         delay = 300;
         await page.evaluate(
@@ -159,7 +156,7 @@ parent.postMessage({type:'link',href:'/fixture/workdir/forged.md'},'*');</script
         );
         await page.evaluate(() => window.StudioNavigation.back());
         await page.waitForTimeout(500);
-        await expect(page.locator('.html-document-frame')).toHaveCount(0);
+        await expect(view.locator('.html-document-frame')).toBeHidden();
         delay = 0;
         useActual = false;
         fail = true;
@@ -170,14 +167,12 @@ parent.postMessage({type:'link',href:'/fixture/workdir/forged.md'},'*');</script
             ),
           file,
         );
-        await expect(page.locator('#docReadError')).toContainText('文件已删除或移动');
+        await page.locator('.workspace-file-reload').click();
+        await expect(view).toContainText('文件已删除或移动');
         fail = false;
-        await page
-          .locator('#docReadError')
-          .getByRole('button', { name: '重试', exact: true })
-          .click();
+        await view.getByRole('button', { name: '重试', exact: true }).click();
         await expect(frame.locator('h1')).toHaveText('HTML 交互报告');
-        await page.locator('#chatFilesListBack').click();
+        await page.getByRole('button', { name: '返回会话', exact: true }).click();
         truncated = true;
         await page.evaluate(
           (path) =>
@@ -186,8 +181,9 @@ parent.postMessage({type:'link',href:'/fixture/workdir/forged.md'},'*');</script
             ),
           file,
         );
-        await expect(page.locator('#docReadError')).toContainText('HTML 内容不完整');
-        await expect(page.locator('.html-document-frame')).toHaveCount(0);
+        await page.locator('.workspace-file-reload').click();
+        await expect(view).toContainText('HTML 内容不完整');
+        await expect(view.locator('.html-document-frame')).toHaveCount(0);
         truncated = false;
         // Legacy Android bridge gets a scriptless, readable fallback.
         await page.evaluate(() => {
@@ -200,12 +196,13 @@ parent.postMessage({type:'link',href:'/fixture/workdir/forged.md'},'*');</script
             ),
           file,
         );
+        await page.locator('.workspace-file-reload').click();
         await expect(frame.locator('h1')).toHaveText('HTML 交互报告');
-        await expect(page.locator('.html-document-frame')).toHaveAttribute('sandbox', '');
+        await expect(view.locator('.html-document-frame')).toHaveAttribute('sandbox', '');
         await frame.locator('#increment').click();
         await expect(frame.locator('output')).toHaveText('0');
-        await expect(page.locator('.html-document-status')).toContainText('静态预览');
-        await page.locator('#chatFilesListBack').click();
+        await expect(view.locator('.html-document-status')).toContainText('静态预览');
+        await page.getByRole('button', { name: '返回会话', exact: true }).click();
         await page.evaluate(() => {
           delete window.StudioApp;
         });

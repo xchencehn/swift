@@ -9,6 +9,7 @@
     U+FF01-FF60, U+FFE0-FFE6, U+20000-323AF;
 }
 :root {
+  --font-mono: 'Cascadia Mono', 'Swift Terminal CJK', ui-monospace, Consolas, monospace;
   --motion-feedback: 120ms;
   --motion-disclosure: 140ms;
   --motion-reorder: 180ms;
@@ -931,9 +932,7 @@ button:disabled {
   padding: 1px 5px;
   border-radius: 5px;
   background: rgba(var(--surface-rgb, 255, 255, 255), 0.08);
-  font:
-    calc(12px * var(--device-font-scale, 1))/1.5 ui-monospace,
-    monospace;
+  font: calc(12px * var(--device-font-scale, 1))/1.5 var(--font-mono);
   overflow-wrap: anywhere;
 }
 .chat-md pre {
@@ -2392,45 +2391,79 @@ button:disabled {
   margin-bottom: 12px;
 }
 .chat-md pre {
+  --syn-text: var(--code-text);
+  --syn-comment: var(--code-comment);
+  --syn-keyword: var(--code-keyword);
+  --syn-string: var(--code-string);
+  --syn-number: var(--code-number);
+  --syn-function: var(--code-function);
+  --syn-type: var(--code-type);
+  --syn-variable: var(--code-variable);
+  --syn-meta: var(--code-meta);
   position: relative;
   padding: 0;
   overflow: hidden;
-  background: var(--code-bg, #202024);
-  border-color: var(--line);
-  border-radius: 12px;
+  background: var(--code-bg, #13181c);
+  border-color: var(--code-border, var(--line));
+  border-radius: 6px;
 }
 .chat-md pre code {
   max-width: 100%;
-  padding: 8px 16px 16px;
+  min-height: 52px;
+  padding: 16px 16px 18px;
   overflow-x: auto;
-  font-size: calc(12.5px * var(--device-font-scale, 1));
+  color: var(--syn-text);
+  font-size: calc(13px * var(--device-font-scale, 1));
   line-height: 1.8;
+  tab-size: 4;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar) transparent;
+}
+/* 只给首行留出按钮位置，后续代码仍使用完整宽度。 */
+.chat-md pre:has(> .code-actions) > code::before {
+  content: '';
+  float: right;
+  width: 64px;
+  height: 20px;
+  margin-left: 8px;
 }
 .code-actions {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 4px;
-  padding: 6px 10px 0;
   max-width: 100%;
 }
 .code-actions button {
-  min-height: 28px;
-  padding: 5px 8px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 6px;
   background: transparent;
-  color: var(--muted);
-  border-radius: 6px;
-  font-size: calc(11px * var(--device-font-scale, 1));
+  color: var(--code-comment, var(--muted));
+  border-radius: 4px;
   white-space: nowrap;
+}
+.code-actions svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 .code-actions button:hover {
   background: var(--control);
-}
-.code-wrap {
-  min-width: 5em;
+  color: var(--code-text, var(--text));
 }
 .code-actions .code-wrap[aria-pressed='true'] {
-  color: var(--observe);
+  color: var(--code-comment, var(--muted));
 }
 .code-actions button:focus-visible {
   outline: 1px solid var(--focus-ring, var(--observe));
@@ -2438,7 +2471,14 @@ button:disabled {
 }
 @media (pointer: coarse) {
   .code-actions button {
-    min-height: 44px;
+    width: 44px;
+    height: 44px;
+  }
+  .chat-md pre:has(> .code-actions) > code {
+    padding-top: 48px;
+  }
+  .chat-md pre:has(> .code-actions) > code::before {
+    display: none;
   }
 }
 .chat-md th,
@@ -2534,11 +2574,7 @@ button:disabled {
   overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font:
-    calc(12px * var(--device-font-scale, 1))/1.75 ui-monospace,
-    SFMono-Regular,
-    Consolas,
-    monospace;
+  font: calc(12px * var(--device-font-scale, 1))/1.75 var(--font-mono);
   color: var(--text);
   margin: 4px 0 14px;
 }
@@ -3363,9 +3399,7 @@ button:disabled {
 }
 .project-doc-plain {
   margin: 0;
-  font:
-    calc(12px * var(--device-font-scale, 1))/1.75 ui-monospace,
-    monospace;
+  font: calc(12px * var(--device-font-scale, 1))/1.75 var(--font-mono);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -3375,13 +3409,7 @@ button:disabled {
   --code-size: calc(12.5px * var(--device-font-scale, 1));
   --code-line: 1.7;
   margin: 0 -4px;
-  font:
-    var(--code-size)/var(--code-line) ui-monospace,
-    'SF Mono',
-    'Cascadia Code',
-    Menlo,
-    Consolas,
-    monospace;
+  font: var(--code-size)/var(--code-line) var(--font-mono);
   color: var(--syn-text);
   tab-size: 4;
   outline: none;
@@ -3469,6 +3497,12 @@ button:disabled {
 }
 :is(.code-view, .chat-md pre, .tool-code) .hljs-params {
   color: var(--syn-text);
+}
+.chat-md pre :is(.hljs-comment, .hljs-quote) {
+  font-style: normal;
+}
+.chat-md pre .hljs-params {
+  color: var(--syn-variable);
 }
 :is(.code-view, .chat-md pre, .tool-code) .hljs-emphasis {
   font-style: italic;
@@ -6050,7 +6084,8 @@ button:disabled {
   color: color-mix(in srgb, var(--danger) 70%, var(--muted));
 }
 .chat-status-notice.visually-hidden,
-.copy-feedback.visually-hidden {
+.copy-feedback.visually-hidden,
+.code-actions .visually-hidden {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -7116,8 +7151,7 @@ button.chat-meta-time {
 .copy-action[data-copy-state='done'] > svg {
   visibility: hidden;
 }
-.tool-section-head .copy-action,
-.code-actions .copy-action {
+.tool-section-head .copy-action {
   min-width: 4em;
 }
 .tool-section-head .copy-action[data-copy-state='done'],

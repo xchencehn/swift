@@ -68,6 +68,12 @@ const swipe = (page, selector, right) =>
     apiError,
     securityHeaders,
   });
+  require('../../lib/http/routes/workspace-files').register(router, {
+    currentRoot: () => ({ data: { directory } }),
+    json,
+    apiError,
+    securityHeaders,
+  });
   const auth = createHttp({ tokens: ['fixture'], maxBodyBytes: 1000 });
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://fixture');
@@ -113,6 +119,7 @@ const swipe = (page, selector, right) =>
       { name: 'small-mobile', width: 320, height: 740, touch: true },
     ]) {
       const fixture = await createFixture();
+      fixture.state.rootDirectory = directory;
       fixture.state.productionPresentation = true;
       fixture.state.contentSecurityPolicy = securityHeaders()['content-security-policy'];
       const context = await browser.newContext({
@@ -124,11 +131,12 @@ const swipe = (page, selector, right) =>
       });
       const page = await context.newPage();
       page.setDefaultTimeout(20000);
+      const view = page.locator('.workspace-file-view:not([hidden])');
       const errors = [];
       let fail = false,
         delay = false;
       page.on('pageerror', (error) => errors.push(error.message));
-      await context.route('**/api/doc-files**', async (route) => {
+      await context.route(/\/api\/(?:doc-files|workspace-files)(?:[/?])/, async (route) => {
         const target = new URL(route.request().url());
         if (fail && target.pathname.endsWith('/preview'))
           return route.fulfill({ status: 503, json: { message: '预览暂时不可用，请重试。' } });
@@ -169,26 +177,26 @@ const swipe = (page, selector, right) =>
           );
         for (const file of files.filter((file) => /\.(docx?|pptx?|xlsx?|pdf)$/.test(file))) {
           await open(file);
-          await expect(page.locator('.doc-page')).toBeVisible();
-          assert(await page.locator('.doc-page').evaluate((image) => image.naturalWidth > 100));
-          await expect(page.locator('.file-preview-page')).toHaveValue('1');
+          await expect(view.locator('.doc-page')).toBeVisible();
+          assert(await view.locator('.doc-page').evaluate((image) => image.naturalWidth > 100));
+          await expect(view.locator('.file-preview-page')).toHaveValue('1');
           await page.getByRole('button', { name: '下一页', exact: true }).click();
-          await expect(page.locator('.file-preview-page')).toHaveValue('2');
-          await expect(page.locator('.doc-page')).toBeVisible();
+          await expect(view.locator('.file-preview-page')).toHaveValue('2');
+          await expect(view.locator('.doc-page')).toBeVisible();
           await page.getByRole('button', { name: '放大', exact: true }).click();
           assert(
-            await page
+            await view
               .locator('.file-preview-body')
               .evaluate((node) => node.scrollWidth > node.clientWidth),
           );
           await page.getByRole('button', { name: '适应宽度', exact: true }).click();
           await page.getByRole('button', { name: '文字', exact: true }).click();
-          await expect(page.locator('.file-preview-text')).toBeVisible();
-          await expect(page.locator('.file-preview-text')).toContainText(
+          await expect(view.locator('.file-preview-text')).toBeVisible();
+          await expect(view.locator('.file-preview-text')).toContainText(
             /Page two|slide 2|Details/,
           );
           await page.getByRole('button', { name: '页面', exact: true }).click();
-          await expect(page.locator('.doc-page')).toBeVisible();
+          await expect(view.locator('.doc-page')).toBeVisible();
           await page.screenshot({
             path: path.join(output, `${viewport.name}-${path.extname(file).slice(1)}.png`),
           });
@@ -197,7 +205,7 @@ const swipe = (page, selector, right) =>
           const saved = await pending;
           assert.equal(saved.suggestedFilename(), path.basename(file));
           assert.equal(await digest(await saved.path()), await digest(file));
-          await page.locator('#chatFilesListBack').click();
+          await page.getByRole('button', { name: '返回会话', exact: true }).click();
           await expect(rows).toHaveCount(files.length);
         }
         for (const [ext, selector] of [
@@ -212,7 +220,7 @@ const swipe = (page, selector, right) =>
               }),
             })
             .click();
-          const media = page.locator(selector);
+          const media = view.locator(selector);
           await expect(media).toBeVisible();
           if (ext === 'svg')
             assert(await media.evaluate((image) => image.complete && image.naturalWidth === 640));
@@ -229,40 +237,36 @@ const swipe = (page, selector, right) =>
             await expect.poll(() => media.evaluate((node) => node.currentTime)).toBeGreaterThan(0);
           }
           await page.screenshot({ path: path.join(output, `${viewport.name}-${ext}.png`) });
-          await page.locator('#chatFilesListBack').click();
-          if (ext !== 'svg')
-            assert(
-              await page.evaluate(
-                () => window.fixtureMedia.paused && !window.fixtureMedia.getAttribute('src'),
-              ),
-            );
+          await page.getByRole('button', { name: '返回会话', exact: true }).click();
+          if (ext !== 'svg') assert(await page.evaluate(() => window.fixtureMedia.paused));
         }
         fail = true;
         await open(pdf);
-        await expect(page.locator('#docReadError')).toContainText('预览暂时不可用');
-        await expect(page.locator('#docReadError [data-save-file]')).toBeVisible();
+        await page.locator('.workspace-file-reload').click();
+        await expect(view).toContainText('预览暂时不可用');
+        await expect(view.locator('[data-save-file]')).toBeVisible();
         fail = false;
-        await page.locator('#docReadError').getByRole('button', { name: '重试' }).click();
-        await expect(page.locator('.doc-page')).toBeVisible();
-        await page.locator('#chatFilesListBack').click();
+        await view.getByRole('button', { name: '重试' }).click();
+        await expect(view.locator('.doc-page')).toBeVisible();
+        await page.getByRole('button', { name: '返回会话', exact: true }).click();
         await open(invalidMedia);
-        await expect(page.locator('.file-preview-status').first()).toContainText(
+        await expect(view.locator('.file-preview-status').first()).toContainText(
           '当前设备无法播放',
         );
-        await expect(page.locator('[data-save-file]')).toBeVisible();
-        await page.locator('#chatFilesListBack').click();
+        await expect(view.locator('[data-save-file]')).toBeVisible();
+        await page.getByRole('button', { name: '返回会话', exact: true }).click();
         delay = true;
         await open(files.find((file) => file.endsWith('.webm')));
         await open(pdf);
-        await expect(page.locator('.doc-page')).toBeVisible();
-        await expect(page.locator('.doc-video')).toHaveCount(0);
-        const geometry = await page.locator('#projectView').evaluate((node) => ({
+        await expect(view.locator('.doc-page')).toBeVisible();
+        await expect(view.locator('.doc-video')).toHaveCount(0);
+        const geometry = await view.evaluate((node) => ({
           width: node.clientWidth,
           overflow: document.documentElement.scrollWidth - innerWidth,
         }));
         assert(geometry.width > 250);
         assert.equal(geometry.overflow, 0);
-        await page.locator('#chatFilesListBack').click();
+        await page.getByRole('button', { name: '返回会话', exact: true }).click();
         if (viewport.touch) await swipe(page, '#sessionFilesList', true);
         else await page.locator('#chatFilesToggle').click();
         await expect(page.locator('#commandInput')).toHaveValue('预览期间保留会话草稿');

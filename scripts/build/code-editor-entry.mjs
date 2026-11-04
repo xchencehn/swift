@@ -57,7 +57,7 @@ const theme = EditorView.theme({
   },
   '&.cm-focused': { outline: 'none' },
   '.cm-scroller': {
-    fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace',
+    fontFamily: 'var(--font-mono)',
     lineHeight: '1.7',
     overflow: 'auto',
     overscrollBehavior: 'contain',

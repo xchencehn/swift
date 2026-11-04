@@ -633,32 +633,15 @@
         copyText: (text, button) => copyText(text, button),
         onCopyCode: (pre) => {
           const key = JSON.stringify([messageOwnerKey(), message.id, codeIndex++]);
-          const text = pre.textContent;
-          const actions = document.createElement('div');
-          actions.className = 'code-actions';
-          const wrap = document.createElement('button');
-          wrap.type = 'button';
-          wrap.className = 'code-wrap';
-          const paintWrap = (enabled) => {
-            pre.dataset.wrap = enabled ? 'on' : 'off';
-            wrap.textContent = enabled ? '自动换行' : '不换行';
-            wrap.setAttribute('aria-pressed', String(enabled));
-            wrap.title = enabled ? '关闭自动换行' : '开启自动换行';
-          };
-          paintWrap(codeWrap.get(key) !== false);
-          wrap.onclick = () => {
-            const enabled = pre.dataset.wrap !== 'on';
-            if (enabled) codeWrap.delete(key);
-            else codeWrap.set(key, false);
-            capMap(codeWrap, 512);
-            paintWrap(enabled);
-          };
-          const copy = chatText(document.createElement('button'), '复制代码');
-          copy.type = 'button';
-          copy.className = 'code-copy';
-          copy.addEventListener('click', () => copyText(text, copy));
-          actions.append(wrap, copy);
-          pre.prepend(actions);
+          window.StudioMarkdown.decorateCodeBlock(pre, {
+            copyText,
+            wrap: codeWrap.get(key) !== false,
+            onWrap: (enabled) => {
+              if (enabled) codeWrap.delete(key);
+              else codeWrap.set(key, false);
+              capMap(codeWrap, 512);
+            },
+          });
         },
       };
     }

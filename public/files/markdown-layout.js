@@ -6,7 +6,7 @@
     if (text != null) node.textContent = text;
     return node;
   };
-  function create({ view, content, id, onWidth, onOutline }) {
+  function create({ view, content, id, onWidth, onOutline, onOutlineWidth }) {
     const reader = make('div', 'workspace-markdown-reader');
     const outline = make('nav', 'workspace-file-outline');
     outline.id = `${id}-outline`;
@@ -16,9 +16,15 @@
     handle.setAttribute('role', 'separator');
     handle.setAttribute('aria-orientation', 'vertical');
     handle.setAttribute('aria-label', 'Markdown 阅读宽度，左右键调整，Home 恢复默认');
+    const outlineHandle = make('div', 'workspace-outline-resizer');
+    outlineHandle.tabIndex = 0;
+    outlineHandle.setAttribute('role', 'separator');
+    outlineHandle.setAttribute('aria-orientation', 'vertical');
+    outlineHandle.setAttribute('aria-label', '目录宽度，左右键调整，Home 恢复默认');
+    outlineHandle.setAttribute('aria-controls', outline.id);
     view.classList.add('workspace-markdown-view');
     reader.append(content);
-    view.append(reader, outline, handle);
+    view.append(reader, outline, handle, outlineHandle);
     const headings = [...content.querySelectorAll('h1, h2, h3, h4, h5, h6')];
     const minimumLevel = headings.reduce(
       (level, node) => Math.min(level, Number(node.tagName[1])),
@@ -51,7 +57,8 @@
     if (!headings.length) outline.append(make('p', 'workspace-outline-empty', '此文档没有标题。'));
     let frame = 0,
       selected = -1,
-      dragging = null;
+      dragging = null,
+      outlineDragging = null;
     const desktop = matchMedia('(min-width: 761px) and (hover: hover) and (pointer: fine)');
     const compact = () => view.clientWidth <= 760;
     const expanded = () => getComputedStyle(outline).display !== 'none';
@@ -101,6 +108,14 @@
       const box = reader.getBoundingClientRect(),
         column = content.getBoundingClientRect(),
         host = view.getBoundingClientRect();
+      outlineHandle.hidden = compact() || !expanded();
+      if (!outlineHandle.hidden) {
+        const bounds = outline.getBoundingClientRect();
+        outlineHandle.style.left = `${bounds.left - host.left - 6}px`;
+        outlineHandle.setAttribute('aria-valuemin', '160');
+        outlineHandle.setAttribute('aria-valuemax', String(Math.floor(outlineLimit())));
+        outlineHandle.setAttribute('aria-valuenow', String(Math.round(bounds.width)));
+      }
       handle.hidden = !desktop.matches || box.width < 400;
       if (!handle.hidden) {
         Object.assign(handle.style, {
@@ -158,6 +173,45 @@
         schedule();
       } else apply(content.getBoundingClientRect().width + (event.key === 'ArrowLeft' ? 20 : -20));
     });
+    const outlineLimit = () => Math.min(480, view.clientWidth / 2);
+    function resizeOutline(width) {
+      onOutlineWidth(Math.round(Math.max(160, Math.min(outlineLimit(), width))));
+      schedule();
+    }
+    function finishOutline(event) {
+      if (!outlineDragging || (event && event.pointerId !== outlineDragging.pointerId)) return;
+      const pointer = outlineDragging.pointerId;
+      outlineDragging = null;
+      document.documentElement.classList.remove('resizing-chat-content');
+      if (outlineHandle.hasPointerCapture(pointer)) outlineHandle.releasePointerCapture(pointer);
+    }
+    outlineHandle.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0 || compact() || !expanded()) return;
+      event.preventDefault();
+      event.stopPropagation();
+      outlineDragging = {
+        pointerId: event.pointerId,
+        x: event.clientX,
+        width: outline.getBoundingClientRect().width,
+      };
+      outlineHandle.setPointerCapture(event.pointerId);
+      document.documentElement.classList.add('resizing-chat-content');
+    });
+    outlineHandle.addEventListener('pointermove', (event) => {
+      if (outlineDragging && event.pointerId === outlineDragging.pointerId)
+        resizeOutline(outlineDragging.width - (event.clientX - outlineDragging.x));
+    });
+    for (const name of ['pointerup', 'pointercancel', 'lostpointercapture'])
+      outlineHandle.addEventListener(name, finishOutline);
+    outlineHandle.addEventListener('keydown', (event) => {
+      if (compact() || !['ArrowLeft', 'ArrowRight', 'Home'].includes(event.key)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.key === 'Home') {
+        onOutlineWidth(null);
+        schedule();
+      } else resizeOutline(outline.clientWidth + (event.key === 'ArrowLeft' ? 20 : -20));
+    });
     reader.addEventListener('scroll', schedule, { passive: true });
     const observer = new ResizeObserver(schedule);
     observer.observe(reader);
@@ -170,6 +224,7 @@
       outlineId: outline.id,
       close() {
         finish();
+        finishOutline();
         cancelAnimationFrame(frame);
         observer.disconnect();
         desktop.removeEventListener('change', schedule);

@@ -33,3 +33,5 @@ npm run release:desktop
 Windows 安装验证使用安装包实际 payload 的哈希。Tauri 会写入 bundle 类型标记，不应直接拿打包前 EXE 的哈希判断安装失败。
 
 `npm run validate -- desktop-startup` 在相同隔离 Windows 虚拟机检查窗口几何、背景与首屏时序。凭据和服务器网络连接不阻塞本地首屏。
+
+关闭窗口先隐藏，再触发页面卸载以保存现有首屏缓存；随后退出对应窗口。渲染器无响应时在一秒后销毁窗口，关闭最后一个窗口不会保留后台进程。缓存序列化不进入渲染或输入路径。

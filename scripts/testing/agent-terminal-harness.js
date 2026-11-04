@@ -225,7 +225,7 @@ const { sourceFingerprint } = require('../lib/source-fingerprint');
         }
         await page.screenshot({ path: path.join(output, viewport.name + '-files.png') });
         await page.getByRole('button', { name: /当前结果/ }).click();
-        await expect(page.locator('#projectView')).toBeVisible();
+        await expect(page.locator('.workspace-file-view:not([hidden])')).toBeVisible();
         await page.evaluate(() => window.StudioNavigation.back());
         await expect(page.locator('#sessionFilesList')).toBeVisible();
         if (viewport.touch) await page.evaluate(() => window.StudioNavigation.back());
