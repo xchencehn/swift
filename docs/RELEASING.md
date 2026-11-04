@@ -25,7 +25,7 @@ gh run watch RUN_ID --repo xchencehn/swift --exit-status
 gh release view vVERSION --repo xchencehn/swift
 ```
 
-自动 Release 包含服务端包、完整源码包、两份来源清单、`server-latest.json`、校验和及 `github-install.py`。发布先上传草稿，确认附件完整后再公开；源码提交必须仍是最新 `main`。失败时修复真实原因，不跳过 CI、覆盖已公开附件或扩大验证结果。相同提交可以恢复残留草稿或重复检查已成功的发行；不同提交不能复用同一版本。服务器单独发布时沿用上一份已公开的客户端 `latest.json`，仍指向原已验证的固定版本安装器。
+自动 Release 包含服务端包、完整源码包、两份来源清单、`server-latest.json`、校验和及 `github-install.py`。发布先上传草稿，确认附件完整后再公开；源码提交必须仍是最新 `main`。失败时修复真实原因，不跳过 CI、覆盖已公开附件或扩大验证结果。相同提交可以恢复残留草稿或重复检查已成功的发行；不同提交不能复用同一版本。服务器单独发布不修改客户端更新清单；客户端附件在其签名与平台验收通过后追加。
 
 工作流可手动重跑；`npm run release:github` 也可在干净的公开工作副本中执行，仍检查相同的 CI 和版本条件。GitHub 工作流使用仓库自己的短期令牌，不上传本地账号或发行签名密钥。
 

@@ -28,7 +28,7 @@ function verifyGate(revision, head, runs) {
     throw new Error('The exact public commit must pass the complete CI workflow before release.');
   return run;
 }
-function prepareAssets(version, revision, previous) {
+function prepareAssets(version, revision) {
   command(process.execPath, ['scripts/release/package-release.js', '--server-only']);
   command(process.execPath, ['scripts/release/package-source.js']);
   const release = path.join(root, 'artifacts/release', version);
@@ -67,22 +67,6 @@ function prepareAssets(version, revision, previous) {
     `swift-${version}-server.tar.gz`,
     `swift-${version}-source.tar.gz`,
   ];
-  // A server-only release keeps the last independently verified desktop update discoverable.
-  if (previous?.assets.some((asset) => asset.name === 'latest.json')) {
-    command('gh', [
-      'release',
-      'download',
-      previous.tag_name,
-      '--repo',
-      repository,
-      '--pattern',
-      'latest.json',
-      '--dir',
-      destination,
-      '--clobber',
-    ]);
-    names.push('latest.json');
-  }
   fs.writeFileSync(
     path.join(destination, 'SHA256SUMS'),
     names
@@ -136,7 +120,7 @@ function main() {
         'Increment the version; published releases are immutable and must not be downgraded.',
       );
   }
-  const assets = prepareAssets(version, revision, latest);
+  const assets = prepareAssets(version, revision);
   const notes = path.join(root, 'artifacts/release', version, 'github/notes.md');
   fs.writeFileSync(
     notes,
