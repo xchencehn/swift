@@ -105,7 +105,7 @@ def activate(directory, release, previous, root, herdr, start, health_url):
     if local.resolve() != state.resolve():
         raise ValueError('Release state directory does not match this installation.')
     # Preserve service definitions and the CLI link for rollback. These files contain no tokens.
-    links = [Path.home() / '.config/systemd/user' / name for name in ['swift.service', 'swift-runtime.service']]
+    links = [Path.home() / '.config/systemd/user/swift.service']
     links.append(Path.home() / '.local/bin/swift')
     saved = []
     for link in links:

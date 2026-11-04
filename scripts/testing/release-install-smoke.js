@@ -86,6 +86,14 @@ async function main() {
     latest.revision = before.revision;
     fs.writeFileSync(latestFile, JSON.stringify(latest));
     const originalConfig = fs.readFileSync(path.join(source, '.local/config/swift.env'));
+    const originalRuntimeUnit = fs.readFileSync(path.join(units, 'swift-runtime.service'));
+    // Existing deployments can keep their CLI on an older release sharing the same state.
+    const previousCli = path.join(directory, 'previous-cli');
+    fs.mkdirSync(path.join(previousCli, 'deploy'), { recursive: true });
+    fs.writeFileSync(path.join(previousCli, 'deploy/swift.sh'), '#!/bin/sh\n', { mode: 0o755 });
+    fs.symlinkSync(path.join(source, '.local'), path.join(previousCli, '.local'));
+    fs.unlinkSync(path.join(home, '.local/bin/swift'));
+    fs.symlinkSync(path.join(previousCli, 'deploy/swift.sh'), path.join(home, '.local/bin/swift'));
     const githubInstall = path.join(directory, 'github-install');
     const githubResult = JSON.parse(
       execFileSync(
@@ -114,6 +122,10 @@ async function main() {
     assert.deepEqual(
       fs.readFileSync(path.join(githubResult.directory, '.local/config/swift.env')),
       originalConfig,
+    );
+    assert.deepEqual(
+      fs.readFileSync(path.join(units, 'swift-runtime.service')),
+      originalRuntimeUnit,
     );
     assert.equal(
       fs.realpathSync(path.join(home, '.local/bin/swift')),

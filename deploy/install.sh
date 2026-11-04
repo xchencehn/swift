@@ -23,13 +23,13 @@ command -v python3 >/dev/null
 [[ -x "$herdr_bin" ]] || { echo 'Install a compatible Herdr binary first.' >&2; exit 1; }
 [[ "$root_dir" = /* && "$herdr_bin" = /* ]] || { echo 'Use absolute paths.' >&2; exit 2; }
 # Validate ownership before creating configuration or installing dependencies.
-python3 - "$source_dir" "$previous_source" <<'PYOWN'
+python3 - "$source_dir" "$previous_source" "$skip_runtime" <<'PYOWN'
 import pathlib,sys
 source=pathlib.Path(sys.argv[1]).resolve()
 previous=pathlib.Path(sys.argv[2]).resolve() if sys.argv[2] else None
 if previous and (source/'.local').resolve() != (previous/'.local').resolve():
     raise RuntimeError('An upgrade must preserve the previous installation state directory.')
-for name in ['swift.service','swift-runtime.service']:
+for name in (['swift.service'] if sys.argv[3]=='1' else ['swift.service','swift-runtime.service']):
     link=pathlib.Path.home()/'.config/systemd/user'/name
     owned=[p.resolve() for base in [source,previous] if base for p in [base/'deploy/systemd'/name,base/'.local/config/systemd'/name]]
     if (link.exists() or link.is_symlink()) and (not link.is_symlink() or link.resolve() not in owned):
@@ -38,14 +38,18 @@ launcher=pathlib.Path.home()/'.local/bin/swift'
 if launcher.exists() or launcher.is_symlink():
     managed=launcher.is_file() and b'# Swift-managed execution environment' in launcher.read_bytes()
     launchers=[base/'deploy/swift.sh' for base in [source,previous] if base]
-    if not managed and (not launcher.is_symlink() or launcher.resolve() not in launchers):
+    shared_state=False
+    if previous and launcher.is_symlink():
+        target=launcher.resolve()
+        shared_state=target.name=='swift.sh' and target.parent.name=='deploy' and (target.parent.parent/'.local').resolve()==(source/'.local').resolve()
+    if not managed and not shared_state and (not launcher.is_symlink() or launcher.resolve() not in launchers):
         raise RuntimeError('Existing swift command belongs to another installation: '+str(launcher))
 PYOWN
 python3 "$source_dir/deploy/cleanup-legacy-environment.py" "$source_dir"
 npm --prefix "$source_dir" ci --omit=dev
-python3 - "$source_dir" "$root_dir" "$herdr_bin" <<'PY'
+python3 - "$source_dir" "$root_dir" "$herdr_bin" "$skip_runtime" <<'PY'
 import os,sys,secrets,pathlib
-source,root,herdr=map(pathlib.Path,sys.argv[1:])
+source,root,herdr=map(pathlib.Path,sys.argv[1:4])
 config=source/'.local/config';config.mkdir(parents=True,exist_ok=True);config.chmod(0o700)
 env=config/'swift.env'
 def quote(value): return '"'+str(value).replace('\\','\\\\').replace('"','\\"')+'"'
@@ -69,7 +73,7 @@ def unit_path(value):
 units=config/'systemd';units.mkdir(exist_ok=True)
 import shutil
 replacements={'@SOURCE@':unit_path(source),'@CONFIG@':unit_path(config),'@NODE@':unit_path(shutil.which('node'))}
-for name in ['swift.service','swift-runtime.service']:
+for name in (['swift.service'] if sys.argv[4]=='1' else ['swift.service','swift-runtime.service']):
     target=units/name
     text=(source/'deploy/templates'/name).read_text()
     for old,new in replacements.items(): text=text.replace(old,new)

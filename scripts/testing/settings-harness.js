@@ -341,6 +341,7 @@ async function run() {
         assert(Math.abs((await size()) - (before * 12) / 14) < 0.05);
         await page.locator('#deviceFontReset').click();
         await expect(slider).toHaveValue('14');
+        assert(Math.abs((await size()) - before) < 0.05);
         const other = await context.newPage();
         await other.goto(fixture.url + '/?token=fixture&view=chat');
         await expect(other.locator('#chatLog')).toContainText('codex 浏览器验收样例');
