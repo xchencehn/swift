@@ -75,3 +75,83 @@ test('observer decoding preserves split UTF-8, full frame ordering and an unterm
   assert.equal(events[0], 'full');
   assert.equal(events.slice(1).join(''), '你🙂');
 });
+
+function consumer() {
+  let time = 0,
+    resumes = 0;
+  const closes = [];
+  const ws = {
+    readyState: 1,
+    bufferedAmount: 0,
+    send() {},
+    close: (...args) => closes.push(args),
+  };
+  const output = createOutputControl({
+    ws,
+    acknowledged: true,
+    pause() {},
+    resume: () => resumes++,
+    now: () => time,
+  });
+  output.write(Buffer.alloc(320 * 1024));
+  return {
+    ws,
+    output,
+    closes,
+    get resumes() {
+      return resumes;
+    },
+    ack(at, offset) {
+      time = at;
+      output.acknowledge({ streamId: output.streamId, offset });
+    },
+  };
+}
+
+test('steady consumer progress can drain a paused window for longer than the stall timeout', () => {
+  const c = consumer();
+  try {
+    for (let n = 1; n <= 8; n++) c.ack(n * 500, n * 32 * 1024);
+    assert.deepEqual(c.closes, []);
+    assert.equal(c.resumes, 1);
+    assert.equal(c.output.blocked, false);
+  } finally {
+    c.output.stop();
+  }
+});
+
+test('duplicate and out-of-order acknowledgements do not extend a stalled window', () => {
+  const c = consumer();
+  try {
+    c.ack(500, 32 * 1024);
+    c.ack(2000, 0);
+    assert.equal(c.closes.length, 0);
+    c.ack(2500, 32 * 1024);
+    assert.equal(c.closes[0][0], 4008);
+  } finally {
+    c.output.stop();
+  }
+});
+
+test('advancing acknowledgements cannot conceal a stalled transport or pause forever', () => {
+  const c = consumer();
+  try {
+    c.ws.bufferedAmount = OUTPUT_HIGH_BYTES + 1024;
+    c.ack(500, 32 * 1024);
+    c.ws.bufferedAmount = OUTPUT_HIGH_BYTES;
+    c.ack(1500, 64 * 1024);
+    c.ack(3000, 96 * 1024);
+    assert.equal(c.closes.length, 0);
+    c.ack(3500, 128 * 1024);
+    assert.equal(c.closes[0][1], 'terminal output consumer stalled');
+  } finally {
+    c.output.stop();
+  }
+  const slow = consumer();
+  try {
+    for (let n = 1; n <= 20; n++) slow.ack(n * 500, n);
+    assert.deepEqual(slow.closes, [[4008, 'terminal output pause budget exceeded']]);
+  } finally {
+    slow.output.stop();
+  }
+});

@@ -277,7 +277,7 @@ async function run() {
         await page.locator('#settingsAppearanceTab').click();
         assert.deepEqual(await page.locator('.device-settings-section h3').allTextContents(), [
           '主题',
-          '字体大小',
+          '界面基准字号',
           '终端字体大小',
           '服务器更新',
         ]);

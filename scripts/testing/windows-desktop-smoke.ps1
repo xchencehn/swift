@@ -15,6 +15,8 @@ public static class SwiftWindow {
  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr handle, out uint pid);
  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr handle, System.Text.StringBuilder text, int count);
  [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr handle,uint message,IntPtr wparam,IntPtr lparam);
+ [DllImport("user32.dll")] public static extern bool SetCursorPos(int x,int y);
+ [DllImport("user32.dll")] public static extern void mouse_event(uint flags,uint x,uint y,uint data,UIntPtr extra);
  public static IntPtr MainWindow(int pid) {
   IntPtr result=IntPtr.Zero;
   EnumWindows((handle, parameter)=>{uint owner;GetWindowThreadProcessId(handle,out owner);var title=new System.Text.StringBuilder(256);GetWindowText(handle,title,256);if(owner==pid && title.ToString().Contains("Swift")){result=handle;return false;}return true;},IntPtr.Zero);
@@ -409,14 +411,16 @@ try {
   if(-not $outlineEntry -or $outlineEntry.Current.IsOffscreen){Invoke-Control (Find-Control '目录' 'Button')}
   Invoke-Control (Find-Control '保存操作' 'Button')
   Capture-Window 'native-files.png'
-  # Exercise clipboard access with native keyboard activation, as for code copy above.
+  # Click the visible toolbar control with native input; UIA invocation may lack clipboard activation.
   $fileCopyAll=Find-Control '复制全文' 'Button'
   [SwiftWindow]::SetForegroundWindow($script:mainWindow) | Out-Null
   $fileCopyAll.SetFocus()
   Start-Sleep -Milliseconds 150
   if([SwiftWindow]::GetForegroundWindow() -ne $script:mainWindow -or -not $fileCopyAll.Current.HasKeyboardFocus){throw 'The isolated full-file copy button does not own keyboard focus.'}
-  [SwiftWindow]::keybd_event(0x20,0,0,[UIntPtr]::Zero)
-  [SwiftWindow]::keybd_event(0x20,0,2,[UIntPtr]::Zero)
+  $copyBox=$fileCopyAll.Current.BoundingRectangle
+  [SwiftWindow]::SetCursorPos([int]($copyBox.Left+$copyBox.Width/2),[int]($copyBox.Top+$copyBox.Height/2)) | Out-Null
+  [SwiftWindow]::mouse_event(2,0,0,0,[UIntPtr]::Zero)
+  [SwiftWindow]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
   Find-Control '复制全文，已复制' 'Button' | Out-Null
   $copied=& powershell.exe -NoProfile -STA -Command 'Get-Clipboard -Raw'
   $originalFile="# Windows 文件验收`n`n读取与修改临时文件。`n`n"+'```javascript'+"`nconst answer = `"中文高亮`";`nconsole.log(answer, 42);`n"+'```'+"`n`n## 保存操作`n`n这里是第二节。`n"
@@ -580,7 +584,7 @@ try {
  Capture-Window 'native-settings.png'
  Invoke-Control (Find-Control '界面字号' 'Button')
  Find-Control '界面字号预览' | Out-Null
- Find-Control '字体大小' 'Slider' | Out-Null
+ Find-Control '界面基准字号' 'Slider' | Out-Null
  Capture-Window 'native-settings-font.png'
  Invoke-Control (Find-Control '返回设置' 'Button')
  Invoke-Control (Find-Control '终端字号' 'Button')

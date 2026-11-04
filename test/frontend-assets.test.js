@@ -124,3 +124,30 @@ test('单个文件的版本只随它自己变', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('gzip cache bounds retained bytes, evicts least recently used responses and invalidates content', () => {
+  const assets = createFrontendAssets('.');
+  const body = Buffer.alloc(6 * 1024 * 1024, 'a');
+  const a = assets.gzip('a', body),
+    b = assets.gzip('b', body);
+  assert.equal(assets.gzip('a', body), a);
+  assets.gzip('c', body);
+  assert.equal(assets.gzip('a', body), a);
+  assert.notEqual(assets.gzip('b', body), b);
+  const updated = Buffer.from('updated response');
+  const response = assets.gzip('a', updated);
+  assert.deepEqual(zlib.gunzipSync(response), updated);
+  assert.equal(assets.gzip('a', updated), response);
+  const oversized = Buffer.alloc(16 * 1024 * 1024, 'b');
+  assert.notEqual(assets.gzip('large', oversized), assets.gzip('large', oversized));
+});
+
+test('gzip cache also bounds the number of tiny entries', () => {
+  const assets = createFrontendAssets('.'),
+    body = Buffer.from('small'),
+    oldest = assets.gzip('0', body);
+  let newest;
+  for (let n = 1; n < 129; n++) newest = assets.gzip(String(n), body);
+  assert.equal(assets.gzip('128', body), newest);
+  assert.notEqual(assets.gzip('0', body), oldest);
+});

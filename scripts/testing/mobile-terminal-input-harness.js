@@ -11,9 +11,9 @@ const output = path.resolve(
 const viewports = [
   { name: 'desktop', width: 1440, height: 900, font: 14 },
   { name: 'tablet', width: 1024, height: 768, touch: true, font: 14 },
-  { name: 'phone', width: 390, height: 844, touch: true, font: 7 },
-  { name: 'small-phone', width: 320, height: 740, touch: true, font: 7 },
-  { name: 'phone-landscape', width: 844, height: 390, touch: true, font: 7 },
+  { name: 'phone', width: 390, height: 844, touch: true, font: 11.5 },
+  { name: 'small-phone', width: 320, height: 740, touch: true, font: 11.5 },
+  { name: 'phone-landscape', width: 844, height: 390, touch: true, font: 11.5 },
 ];
 (async () => {
   await fs.mkdir(output, { recursive: true });

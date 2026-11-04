@@ -24,6 +24,7 @@ for (const file of files) {
 console.log(`Checked ${files.length} JavaScript files.`);
 
 for (const [command, args] of [
+  [process.execPath, ['scripts/check/frontend-assets.js']],
   [process.execPath, ['scripts/build/terminal-assets.js', '--check']],
   [process.execPath, ['scripts/build/build-code-editor.js', '--check']],
   [process.execPath, ['scripts/build/generate-provider-capabilities.mjs', '--check']],

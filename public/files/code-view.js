@@ -203,7 +203,19 @@
    * @returns {HTMLElement} 代码视图的根节点
    */
   let runHighlight;
+  const highlights = new Map(),
+    pendingHighlights = new Map();
+  const HIGHLIGHT_CACHE_BYTES = 8 * 1024 * 1024;
+  let highlightBytes = 0;
   function highlightSource(source, language) {
+    const key = `${language}\0${source}`;
+    const cached = highlights.get(key);
+    if (cached) {
+      highlights.delete(key);
+      highlights.set(key, cached);
+      return Promise.resolve(cached.html);
+    }
+    if (pendingHighlights.has(key)) return pendingHighlights.get(key);
     runHighlight ||= host.StudioOffThread.createOffThreadQueue(
       () =>
         new Worker(
@@ -212,7 +224,26 @@
       1000,
       { waitForReady: true },
     );
-    return runHighlight({ source, language });
+    const promise = runHighlight({ source, language }).promise.then((html) => {
+      pendingHighlights.delete(key);
+      // Failed, timed-out or dropped jobs remain retryable. Count both the UTF-16
+      // key and markup so large code blocks cannot grow retained memory forever.
+      if (typeof html === 'string') {
+        const bytes = 2 * (key.length + html.length);
+        if (bytes <= HIGHLIGHT_CACHE_BYTES) {
+          while (highlights.size >= 64 || highlightBytes + bytes > HIGHLIGHT_CACHE_BYTES) {
+            const oldest = highlights.keys().next().value;
+            highlightBytes -= highlights.get(oldest).bytes;
+            highlights.delete(oldest);
+          }
+          highlights.set(key, { html, bytes });
+          highlightBytes += bytes;
+        }
+      }
+      return html;
+    });
+    pendingHighlights.set(key, promise);
+    return promise;
   }
 
   /** Fenced code shares the file viewer's bounded worker; plain text is visible first. */
@@ -222,8 +253,7 @@
     if (!name || ['text', 'txt', 'plaintext', 'mermaid', 'ansi', 'console'].includes(name)) return;
     const source = code.textContent;
     if (source.length > HIGHLIGHT_LIMIT || !host.Worker || !host.StudioOffThread) return;
-    const job = highlightSource(source, aliases[name] || LANGUAGES[name] || name);
-    job.promise.then((html) => {
+    highlightSource(source, aliases[name] || LANGUAGES[name] || name).then((html) => {
       if (!code.isConnected || !html || code.textContent !== source) return;
       // Only the vendored highlight.js worker produces this escaped span markup.
       code.innerHTML = html;
@@ -253,8 +283,7 @@
       host.Worker &&
       host.StudioOffThread
     ) {
-      const job = highlightSource(source, language);
-      job.promise.then((html) => {
+      highlightSource(source, language).then((html) => {
         if (!view.isConnected || !html) return;
         paintLines(view, splitLines(html));
         view.classList.add('hljs');
