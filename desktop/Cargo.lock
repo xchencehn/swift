@@ -3888,7 +3888,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "swift-desktop"
-version = "0.23.4"
+version = "0.23.5"
 dependencies = [
  "futures-util",
  "reqwest 0.13.5",
@@ -3904,7 +3904,7 @@ dependencies = [
 
 [[package]]
 name = "swift-desktop-core"
-version = "0.23.4"
+version = "0.23.5"
 dependencies = [
  "axum",
  "base64 0.22.1",

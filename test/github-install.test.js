@@ -69,7 +69,8 @@ with tempfile.TemporaryDirectory(prefix='swift-upgrade-rollback-') as temporary:
         (links/name).symlink_to(unitdir/name)
     bindir = home/'.local/bin'; bindir.mkdir(parents=True)
     (bindir/'swift').symlink_to(previous/'deploy/swift.sh')
-    (bindir/'systemctl').write_text('#!/bin/sh\\nexit 0\\n'); (bindir/'systemctl').chmod(0o755)
+    operations = root/'systemctl.log'
+    (bindir/'systemctl').write_text('#!/bin/sh\\nprintf "%s\\\\n" "$*" >> "'+str(operations)+'"\\nexit 0\\n'); (bindir/'systemctl').chmod(0o755)
     os.environ['PATH'] = str(bindir)+os.pathsep+os.environ['PATH']
     install.mkdir(); (install/'current').symlink_to(previous)
     (release/'deploy/install.sh').write_text(
@@ -82,6 +83,8 @@ with tempfile.TemporaryDirectory(prefix='swift-upgrade-rollback-') as temporary:
     assert (unitdir/'swift-runtime.service').read_text() == 'original swift-runtime.service'
     assert (bindir/'swift').resolve() == previous/'deploy/swift.sh'
     assert (install/'current').resolve() == previous
+    assert 'restart' not in operations.read_text()
+    assert (home/'.config/systemd/user/swift.service.d/90-swift-native-lifetime.conf').is_file()
 `,
       path.resolve(__dirname, '../deploy/github-install.py'),
     ],

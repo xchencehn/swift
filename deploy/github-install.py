@@ -118,8 +118,16 @@ def activate(directory, release, previous, root, herdr, start, health_url):
     if current.exists() and not current.is_symlink():
         raise ValueError('The installation current path must be a symlink.')
     old_current = os.readlink(current) if current.is_symlink() else None
+    # Keep this override when rolling back to an older template as well.
+    override = Path.home() / '.config/systemd/user/swift.service.d/90-swift-native-lifetime.conf'
+    override_text = '[Service]\nKillMode=process\n'
+    if override.exists() and override.read_text() != override_text:
+        raise ValueError('The native lifetime service override has local changes; preserve them before upgrading.')
+    override.parent.mkdir(parents=True, exist_ok=True)
+    override.write_text(override_text)
     was_active = subprocess.run(['systemctl', '--user', 'is-active', '--quiet', 'swift.service'],
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+    service_changed = False
     try:
         command = ['bash', str(release / 'deploy/install.sh'), '--root', str(root), '--herdr', str(herdr),
                    '--no-start', '--skip-runtime']
@@ -140,6 +148,12 @@ def activate(directory, release, previous, root, herdr, start, health_url):
         replacement.symlink_to(release, target_is_directory=True)
         replacement.replace(current)
         if start:
+            kill_mode = subprocess.check_output([
+                'systemctl', '--user', 'show', 'swift.service', '-p', 'KillMode', '--value'
+            ], text=True).strip()
+            if kill_mode != 'process':
+                raise ValueError('The effective Swift KillMode must preserve native terminal processes.')
+            service_changed = True
             run('systemctl', '--user', 'restart', 'swift.service')
             if health_url:
                 import time
@@ -167,7 +181,7 @@ def activate(directory, release, previous, root, herdr, start, health_url):
         if old_current is not None:
             current.symlink_to(old_current, target_is_directory=True)
         run('systemctl', '--user', 'daemon-reload', check=False)
-        if start:
+        if service_changed:
             run('systemctl', '--user', 'restart' if was_active else 'stop', 'swift.service', check=False)
         raise
 

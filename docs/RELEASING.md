@@ -41,7 +41,7 @@ python3 swift-install.py --root /absolute/project --herdr /absolute/path/to/herd
 
 默认安装到 `~/.local/share/swift/server/`，各版本放入 `releases/`，`current` 指向所选版本，`state/` 保存共享私有配置和数据。后续执行相同命令即可升级。用 `--version VERSION` 固定发行；`--download-only` 只验证、解包，不改服务；`--assets DIRECTORY` 可使用已经下载的相同 Release 附件。
 
-迁移已有源码安装时，额外传入 `--previous-source /absolute/previous-swift`。安装器沿用原 `.local/` 状态，不复制或输出凭据，保留原目录作为回退依据；不会覆盖开发仓。正式切换仅重启 Swift 网页服务，不重启 Herdr 或 Codex、不向原生终端输入。安装或启动核对失败时恢复原服务定义与入口。没有 `--start` 时只更新安装和服务配置，尚未重启正在运行的服务。
+迁移已有源码安装时，额外传入 `--previous-source /absolute/previous-swift`。安装器沿用原 `.local/` 状态，不复制或输出凭据，保留原目录作为回退依据；不会覆盖开发仓。正式切换仅重启 Swift 网页服务，不重启 Herdr 或 Codex、不向原生终端输入。用户服务设置 `KillMode=process`，只终止网页主进程；安装器保留同样的服务覆盖，回退旧模板时仍保护原生进程。安装或启动核对失败时恢复原服务定义与入口，尚未切换时不重启现有服务。没有 `--start` 时只更新安装和服务配置，尚未重启正在运行的服务。
 
 部署后分别核对服务器版本、连接访问和原生终端身份。跨机器执行同一安装流程，保留目标机的配置、用户服务和独立 SSH 隧道；不要把管理机的凭据与私有配置打进安装包。生产状态核对不替代隔离测试。
 
