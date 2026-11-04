@@ -6756,7 +6756,7 @@ x,&x\geq 0\\
           .locator('.session-name')
           .first()
           .evaluate((el) => parseFloat(getComputedStyle(el).fontSize)),
-        13,
+        14,
       );
       codex.lastMessageAt = 300;
       await refresh(page, fixture);

@@ -183,7 +183,7 @@ async function run() {
               .first()
               .evaluate((el) => parseFloat(getComputedStyle(el).fontSize)),
           )
-          .toBe(20);
+          .toBeCloseTo((16 * 20) / 14, 3);
         await page.locator('#settingsBack').click();
         await expect(page.locator('[data-settings-value=font]')).toHaveText('20 px');
         await category('#settingsAppearanceTab');

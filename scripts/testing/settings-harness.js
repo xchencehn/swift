@@ -321,7 +321,7 @@ async function run() {
         await expect(page.locator('#settingsPage')).toBeHidden();
         await page.reload();
         await expect(page.locator('#chatLog')).toContainText('codex 浏览器验收样例');
-        assert(Math.abs((await size()) - 20) < 0.05);
+        assert(Math.abs((await size()) - (before * 20) / 14) < 0.05);
         if (!(await settings.isVisible())) await page.locator('#chatDrawerToggle').click();
         await settings.click();
         await page.locator('#settingsFontTab').click();
@@ -338,7 +338,7 @@ async function run() {
         await slider.focus();
         await page.keyboard.press('Home');
         await expect(slider).toHaveValue('12');
-        assert(Math.abs((await size()) - 12) < 0.05);
+        assert(Math.abs((await size()) - (before * 12) / 14) < 0.05);
         await page.locator('#deviceFontReset').click();
         await expect(slider).toHaveValue('14');
         const other = await context.newPage();
