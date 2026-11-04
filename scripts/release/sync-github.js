@@ -177,6 +177,23 @@ function main() {
       destination,
       fs.existsSync(receipt) ? JSON.parse(fs.readFileSync(receipt)) : undefined,
     );
+    const releases = JSON.parse(
+      execFileSync('gh', ['api', `repos/${values.repository}/releases?per_page=100`], {
+        encoding: 'utf8',
+      }),
+    );
+    const published = releases.find((entry) => entry.tag_name === `v${version}` && !entry.draft);
+    if (published) {
+      const commit = JSON.parse(
+        execFileSync('gh', ['api', `repos/${values.repository}/commits/v${version}`], {
+          encoding: 'utf8',
+        }),
+      );
+      if (commit.commit.tree.sha !== git(source, 'rev-parse', `${revision}^{tree}`))
+        throw new Error(
+          `Version ${version} is already published; increment the version before pushing new content.`,
+        );
+    }
     const result = syncTree(source, revision, destination);
     if (git(destination, 'diff', '--cached', '--name-only'))
       git(destination, 'commit', '-m', `Release Swift ${version}`);
