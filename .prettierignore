@@ -1,0 +1,28 @@
+node_modules/
+artifacts/
+.local/
+android/.gradle/
+android/private/
+android/app/build/
+android/build/
+desktop/target/
+desktop/dist/
+desktop/src-tauri/gen/
+public/vendor/
+third_party/
+test/fixtures/
+shared/herdr-schema.json
+shared/herdr-api.generated.ts
+public/provider-capabilities.js
+public/session-sync.js
+public/harness-files.js
+package-lock.json
+desktop/Cargo.lock
+runtime/codex/
+*.patch
+
+# Serialized patch functions retain the reviewed runtime bytes.
+scripts/build/patches/
+
+# Generated CodeMirror entry reference.
+public/files/code-editor-assets.js

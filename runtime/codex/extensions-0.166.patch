@@ -1,0 +1,1329 @@
+diff --git a/codex-rs/app-server-protocol/src/protocol/v2/thread_data.rs b/codex-rs/app-server-protocol/src/protocol/v2/thread_data.rs
+index dd7c0d8..a568c38 100644
+--- a/codex-rs/app-server-protocol/src/protocol/v2/thread_data.rs
++++ b/codex-rs/app-server-protocol/src/protocol/v2/thread_data.rs
+@@ -165,7 +165,12 @@ impl From<ThreadSource> for CoreThreadSource {
+ #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema, TS)]
+ #[serde(rename_all = "camelCase")]
+ #[ts(rename_all = "camelCase", export_to = "v2/")]
+-pub struct ThreadExtra {}
++pub struct ThreadExtra {
++    /// Current in-memory side conversation items, excluding inherited context.
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    #[ts(optional)]
++    pub swift_side_items: Option<Vec<serde_json::Value>>,
++}
+
+ #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema, TS)]
+ #[serde(rename_all = "camelCase")]
+diff --git a/codex-rs/app-server/src/request_processors/thread_processor.rs b/codex-rs/app-server/src/request_processors/thread_processor.rs
+index 1ef252d..95c5602 100644
+--- a/codex-rs/app-server/src/request_processors/thread_processor.rs
++++ b/codex-rs/app-server/src/request_processors/thread_processor.rs
+@@ -3263,11 +3263,6 @@ impl ThreadRequestProcessor {
+         persisted_thread: Option<Thread>,
+     ) -> Result<Thread, ThreadReadViewError> {
+         let config_snapshot = loaded_thread.config_snapshot().await;
+-        if include_turns && config_snapshot.ephemeral {
+-            return Err(ThreadReadViewError::InvalidRequest(
+-                "ephemeral threads do not support includeTurns".to_string(),
+-            ));
+-        }
+         let fallback_thread =
+             build_thread_from_loaded_snapshot(thread_id, &config_snapshot, loaded_thread);
+         let mut thread = if let Some(mut thread) = persisted_thread {
+@@ -3282,6 +3277,32 @@ impl ThreadRequestProcessor {
+             fallback_thread
+         };
+         apply_live_thread_settings(&mut thread, &config_snapshot);
++        if include_turns && config_snapshot.ephemeral {
++            let snapshot = loaded_thread.conversation_history_snapshot().await;
++            let mut after_boundary = false;
++            let items: Vec<_> = snapshot.items().filter(|item| {
++                if let ResponseItem::Message { role, content, .. } = item
++                    && role == "user"
++                    && content.iter().any(|part| matches!(part,
++                        codex_protocol::models::ContentItem::InputText { text }
++                        if text.starts_with("Side conversation boundary.")))
++                {
++                    after_boundary = true;
++                    return false;
++                }
++                after_boundary
++             }).map(|item| serde_json::to_value(item).expect("response item serialization")).collect();
++            thread.extra = Some(codex_app_server_protocol::ThreadExtra {
++                swift_side_items: Some(items),
++            });
++            thread.turns.clear();
++            let state = self.thread_state_manager.thread_state(thread_id).await;
++            if let Some(active) = state.lock().await.active_turn_snapshot() {
++                thread.turns.retain(|turn| turn.id != active.id);
++                thread.turns.push(active);
++            }
++            return Ok(thread);
++        }
+         self.apply_thread_read_store_fields(thread_id, &mut thread, include_turns, loaded_thread)
+             .await?;
+         Ok(thread)
+@@ -5001,6 +5022,60 @@ impl ThreadRequestProcessor {
+         Ok((history, stored_thread))
+     }
+
++    // Ephemeral forks have no rollout. Snapshot their actual model context only
++    // for an explicit fork; ordinary resume and archive reads remain unchanged.
++    async fn read_swift_fork_source(
++        &self, thread_id: &str, path: Option<&PathBuf>, include_history: bool,
++    ) -> Result<StoredThread, JSONRPCErrorError> {
++        if path.is_none()
++            && let Ok(id) = ThreadId::from_string(thread_id)
++            && let Ok(live) = self.thread_manager.get_thread(id).await
++        {
++            let config = live.config_snapshot().await;
++            if config.ephemeral {
++                let parent = config.forked_from_thread_id
++                    .ok_or_else(|| invalid_request("ephemeral fork has no parent"))?;
++                let mut stored = self.read_stored_thread_for_resume(
++                    &parent.to_string(), None, false).await?;
++                stored.thread_id = id;
++                stored.forked_from_id = Some(parent);
++                stored.rollout_path = None;
++                stored.history_mode = ThreadHistoryMode::Legacy;
++                stored.cwd = config.cwd().to_path_buf();
++                stored.model = Some(config.model);
++                stored.model_provider = config.model_provider_id;
++                stored.reasoning_effort = config.reasoning_effort;
++                stored.approval_mode = config.approval_policy;
++                stored.permission_profile = config.permission_profile;
++                if include_history {
++                    stored.history = Some(codex_thread_store::StoredThreadHistory {
++                        thread_id: id,
++                        items: live.conversation_history_snapshot().await.items()
++                            .cloned().map(|mut item| {
++                                // A persistent fork retains the conversation, not the
++                                // temporary thread's restrictions or hidden user prompt.
++                                if let ResponseItem::Message { role, content, .. } = &mut item
++                                    && role.as_str() == "user"
++                                    && content.iter().any(|part| matches!(part,
++                                        codex_protocol::models::ContentItem::InputText { text }
++                                        if text.starts_with("Side conversation boundary.")))
++                                {
++                                    *role = "developer".to_string();
++                                    *content = vec![codex_protocol::models::ContentItem::InputText {
++                                        text: "This is an independent persistent fork of the preceding conversation. Earlier messages provide reference context; continue only from new user requests in this fork. The temporary side-conversation restrictions no longer apply.".to_string(),
++                                    }];
++                                }
++                                RolloutItem::ResponseItem(item.into())
++                            }).collect(),
++                        revision: None,
++                    });
++                }
++                return Ok(stored);
++            }
++        }
++        self.read_stored_thread_for_resume(thread_id, path, include_history).await
++    }
++
+     async fn read_stored_thread_for_resume(
+         &self,
+         thread_id: &str,
+@@ -5332,7 +5407,7 @@ impl ThreadRequestProcessor {
+             ));
+         }
+         let source_thread = self
+-            .read_stored_thread_for_resume(
++            .read_swift_fork_source(
+                 &thread_id,
+                 path.as_ref(),
+                 /*include_history*/ false,
+@@ -5473,7 +5548,7 @@ impl ThreadRequestProcessor {
+             Arc::clone(&prepared_fork.model_context)
+         } else {
+             let mut source_thread = self
+-                .read_stored_thread_for_resume(
++                .read_swift_fork_source(
+                     &thread_id,
+                     path.as_ref(),
+                     /*include_history*/ true,
+@@ -5539,7 +5614,7 @@ impl ThreadRequestProcessor {
+             !has_permission_override(request_overrides.as_ref(), &typesafe_overrides);
+         let needs_latest_settings =
+             restore_approval_policy || restore_approvals_reviewer || restore_permission_profile;
+-        let loaded_parent_settings = if paginated_source && needs_latest_settings {
++        let loaded_parent_settings = if (paginated_source || source_thread.rollout_path.is_none()) && needs_latest_settings {
+             if let Some(parent) = loaded_parent.as_ref() {
+                 let snapshot = parent.thread_settings_snapshot().await;
+                 Some(PersistedResumeSettings::from(&snapshot))
+diff --git a/codex-rs/config/src/types.rs b/codex-rs/config/src/types.rs
+index 6ec41a9..e03aaa5 100644
+--- a/codex-rs/config/src/types.rs
++++ b/codex-rs/config/src/types.rs
+@@ -971,6 +971,10 @@ pub struct Tui {
+     #[serde(default = "default_true")]
+     pub status_line_use_colors: bool,
+
++    /// Account email to short display name mapping for the `account` status line item.
++    #[serde(default)]
++    pub account_aliases: BTreeMap<String, String>,
++
+     /// Ordered list of terminal title item identifiers.
+     ///
+     /// When set, the TUI renders the selected items into the terminal window/tab title.
+diff --git a/codex-rs/core/config.schema.json b/codex-rs/core/config.schema.json
+index 0e741b6..f7332a1 100644
+--- a/codex-rs/core/config.schema.json
++++ b/codex-rs/core/config.schema.json
+@@ -5033,6 +5033,14 @@
+       "additionalProperties": false,
+       "description": "Collection of settings that are specific to the TUI.",
+       "properties": {
++        "account_aliases": {
++          "additionalProperties": {
++            "type": "string"
++          },
++          "default": {},
++          "description": "Account email to short display name mapping for the `account` status line item.",
++          "type": "object"
++        },
+         "agents_overview_grouping": {
+           "allOf": [
+             {
+diff --git a/codex-rs/core/src/config/config_tests.rs b/codex-rs/core/src/config/config_tests.rs
+index 309e2d3..d4ab3bb 100644
+--- a/codex-rs/core/src/config/config_tests.rs
++++ b/codex-rs/core/src/config/config_tests.rs
+@@ -1413,6 +1413,7 @@ fn config_toml_deserializes_model_availability_nux() {
+             alternate_screen: AltScreenMode::default(),
+             status_line: None,
+             status_line_use_colors: true,
++            account_aliases: BTreeMap::new(),
+             terminal_title: None,
+             theme: None,
+             pet: None,
+@@ -4663,6 +4664,7 @@ fn tui_config_missing_notifications_field_defaults_to_enabled() {
+             alternate_screen: AltScreenMode::Auto,
+             status_line: None,
+             status_line_use_colors: true,
++            account_aliases: BTreeMap::new(),
+             terminal_title: None,
+             theme: None,
+             pet: None,
+diff --git a/codex-rs/core/src/config/mod.rs b/codex-rs/core/src/config/mod.rs
+index eb949b8..ca08cff 100644
+--- a/codex-rs/core/src/config/mod.rs
++++ b/codex-rs/core/src/config/mod.rs
+@@ -862,6 +862,9 @@ pub struct Config {
+     /// Whether to color status line items with colors from the active syntax theme.
+     pub tui_status_line_use_colors: bool,
+
++    /// Account email to short display name mapping for the TUI status line.
++    pub tui_account_aliases: BTreeMap<String, String>,
++
+     /// Ordered list of terminal title item identifiers for the TUI.
+     ///
+     /// When unset, the TUI defaults to: `activity` and `project`.
+@@ -4815,6 +4818,11 @@ impl Config {
+                 .as_ref()
+                 .map(|t| t.status_line_use_colors)
+                 .unwrap_or(true),
++            tui_account_aliases: cfg
++                .tui
++                .as_ref()
++                .map(|t| t.account_aliases.clone())
++                .unwrap_or_default(),
+             tui_terminal_title: cfg.tui.as_ref().and_then(|t| t.terminal_title.clone()),
+             tui_theme: cfg.tui.as_ref().and_then(|t| t.theme.clone()),
+             tui_pet: cfg.tui.as_ref().and_then(|t| t.pet.clone()),
+diff --git a/codex-rs/thread-manager-sample/src/main.rs b/codex-rs/thread-manager-sample/src/main.rs
+index 1ced86e..3096af5 100644
+--- a/codex-rs/thread-manager-sample/src/main.rs
++++ b/codex-rs/thread-manager-sample/src/main.rs
+@@ -302,6 +302,7 @@ async fn new_config(
+         tui_alternate_screen: AltScreenMode::Auto,
+         tui_status_line: None,
+         tui_status_line_use_colors: true,
++        tui_account_aliases: Default::default(),
+         tui_terminal_title: None,
+         tui_theme: None,
+         tui_raw_output_mode: false,
+diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event_dispatch.rs
+index 550965d..6d4e729 100644
+--- a/codex-rs/tui/src/app/event_dispatch.rs
++++ b/codex-rs/tui/src/app/event_dispatch.rs
+@@ -33,6 +33,35 @@ impl App {
+         app_server: &mut AppServerSession,
+         event: AppEvent,
+     ) -> Result<AppRunControl> {
++        let event = match event {
++            AppEvent::SwiftSideRequest { request, reply } => {
++                let main = self.primary_thread_id;
++                let side = main.and_then(|id| self.side_thread_for_parent(id));
++                if request["operation"] == "send" {
++                    let valid = main.map(|id| id.to_string()).as_deref() == request["mainId"].as_str()
++                        && side.is_some() && side == self.current_displayed_thread_id()
++                        && side.map(|id| id.to_string()).as_deref() == request["sideId"].as_str()
++                        && self.chat_widget.no_modal_or_popup_active();
++                    let text = request["text"].as_str().unwrap_or("");
++                    let value = if valid && !text.trim().is_empty() && text.len() <= 1_000_000 {
++                        let submitted = self.chat_widget.submit_swift_side_message(text.to_string());
++                        serde_json::json!({"version":1,"mainId":main.map(|id| id.to_string()),
++                            "sideId":side.map(|id| id.to_string()),"activeId":side.map(|id| id.to_string()),"data":{"submitted":submitted}})
++                    } else { serde_json::json!({"error":"Side input changed"}) };
++                    let _ = reply.send(value);
++                    return Ok(AppRunControl::Continue);
++                }
++                let active = self.current_displayed_thread_id();
++                let turn_id = match active {
++                    Some(id) => self.active_turn_id_for_thread(id).await,
++                    None => None,
++                };
++                crate::swift_side::handle(request, reply, main, side,
++                    active, turn_id, app_server.request_handle(), app_server.next_request_id());
++                return Ok(AppRunControl::Continue);
++            }
++            event => event,
++        };
+         let from_agents_overview = matches!(event, AppEvent::ForkAgentsOverviewThreadReady { .. });
+         let event = if let AppEvent::ForkAgentsOverviewThreadReady { thread_id } = event {
+             if self.current_displayed_thread_id() != Some(thread_id)
+@@ -167,6 +196,7 @@ impl App {
+             event => (event, None),
+         };
+         match event {
++            AppEvent::SwiftSideRequest { .. } => unreachable!("handled before dispatch"),
+             AppEvent::OpenDaemonMenu => self.open_daemon_menu(),
+             AppEvent::ConfirmDaemonRestart => self.confirm_daemon_restart(),
+             AppEvent::RunDaemonRestart => {
+diff --git a/codex-rs/tui/src/app/reconnect.rs b/codex-rs/tui/src/app/reconnect.rs
+index 91dde41..0fe258a 100644
+--- a/codex-rs/tui/src/app/reconnect.rs
++++ b/codex-rs/tui/src/app/reconnect.rs
+@@ -339,6 +339,7 @@ impl App {
+         // prevents their late completions from submitting follow-up operations on the new one.
+         let (tx, rx) = mpsc::unbounded_channel();
+         self.app_event_tx = AppEventSender::new(tx);
++        crate::swift_side::start(self.app_event_tx.clone());
+         *app_event_rx = rx;
+         // The old timer targets the discarded channel, so a new preview can be scheduled.
+         self.config_notification_test_pending = None;
+diff --git a/codex-rs/tui/src/app/startup.rs b/codex-rs/tui/src/app/startup.rs
+index f1e83e5..580fbe8 100644
+--- a/codex-rs/tui/src/app/startup.rs
++++ b/codex-rs/tui/src/app/startup.rs
+@@ -313,6 +313,7 @@ impl App {
+         }
+         let (app_event_tx, mut app_event_rx) = unbounded_channel();
+         let app_event_tx = AppEventSender::new(app_event_tx);
++        crate::swift_side::start(app_event_tx.clone());
+         if let Some(message) = project_config_warning(&config) {
+             app_event_tx.send(AppEvent::InsertHistoryCell(Box::new(
+                 history_cell::StartupWarningsCell::new(vec![message]),
+diff --git a/codex-rs/tui/src/app_event.rs b/codex-rs/tui/src/app_event.rs
+index 2adc303..0d5d58b 100644
+--- a/codex-rs/tui/src/app_event.rs
++++ b/codex-rs/tui/src/app_event.rs
+@@ -295,6 +295,10 @@ pub(crate) struct AgentPickerThreadRefresh {
+ #[allow(clippy::large_enum_variant)]
+ #[derive(Debug, IntoStaticStr)]
+ pub(crate) enum AppEvent {
++    SwiftSideRequest {
++        request: serde_json::Value,
++        reply: tokio::sync::oneshot::Sender<serde_json::Value>,
++    },
+     AccountEmailLoaded {
+         request_id: uuid::Uuid,
+         email: Option<String>,
+diff --git a/codex-rs/tui/src/app_event_sender.rs b/codex-rs/tui/src/app_event_sender.rs
+index 0057b90..cdeeb78 100644
+--- a/codex-rs/tui/src/app_event_sender.rs
++++ b/codex-rs/tui/src/app_event_sender.rs
+@@ -61,7 +61,7 @@ impl AppEventSender {
+         }
+         // Record inbound events for high-fidelity session replay.
+         // Avoid double-logging Ops; those are logged at the point of submission.
+-        if !matches!(event, AppEvent::CodexOp(_)) {
++        if !matches!(event, AppEvent::CodexOp(_) | AppEvent::SwiftSideRequest { .. }) {
+             session_log::log_inbound_app_event(&event);
+         }
+         if let Err(e) = self.app_event_tx.send(event) {
+diff --git a/codex-rs/tui/src/bottom_pane/status_line_setup.rs b/codex-rs/tui/src/bottom_pane/status_line_setup.rs
+index c4ca02c..f439158 100644
+--- a/codex-rs/tui/src/bottom_pane/status_line_setup.rs
++++ b/codex-rs/tui/src/bottom_pane/status_line_setup.rs
+@@ -20,6 +20,7 @@
+ //! - Usage limits (primary, secondary)
+ //! - Session info (thread title, thread ID, tokens used)
+ //! - Application version
++//! - Current account short name
+
+ use ratatui::buffer::Buffer;
+ use ratatui::layout::Rect;
+@@ -160,6 +161,9 @@ pub(crate) enum StatusLineItem {
+     /// Latest checklist task progress from `update_plan` (if available).
+     TaskProgress,
+
++    /// Short name of the account used by the connected server.
++    Account,
++
+     /// Named config profile selected for this invocation.
+     Profile,
+
+@@ -231,6 +235,7 @@ impl StatusLineItem {
+             StatusLineItem::TaskProgress => {
+                 "Latest task progress from update_plan (omitted until available)"
+             }
++            StatusLineItem::Account => "Current account short name (omitted until available)",
+         }
+     }
+
+@@ -269,6 +274,7 @@ impl StatusLineItem {
+             StatusLineItem::ThreadTitle => StatusSurfacePreviewItem::ThreadTitle,
+             StatusLineItem::WorkspaceHeadline => StatusSurfacePreviewItem::WorkspaceHeadline,
+             StatusLineItem::TaskProgress => StatusSurfacePreviewItem::TaskProgress,
++            StatusLineItem::Account => StatusSurfacePreviewItem::Account,
+         }
+     }
+ }
+diff --git a/codex-rs/tui/src/bottom_pane/status_line_style.rs b/codex-rs/tui/src/bottom_pane/status_line_style.rs
+index 6041a24..61e537e 100644
+--- a/codex-rs/tui/src/bottom_pane/status_line_style.rs
++++ b/codex-rs/tui/src/bottom_pane/status_line_style.rs
+@@ -57,7 +57,8 @@ impl StatusLineAccent {
+             StatusLineItem::CodexVersion
+             | StatusLineItem::Hostname
+             | StatusLineItem::SessionId
+-            | StatusLineItem::Profile => Self::Metadata,
++            | StatusLineItem::Profile
++            | StatusLineItem::Account => Self::Metadata,
+             StatusLineItem::FastMode | StatusLineItem::Daybreak | StatusLineItem::RawOutput => {
+                 Self::Mode
+             }
+diff --git a/codex-rs/tui/src/bottom_pane/status_surface_preview.rs b/codex-rs/tui/src/bottom_pane/status_surface_preview.rs
+index d940ecb..de0b43d 100644
+--- a/codex-rs/tui/src/bottom_pane/status_surface_preview.rs
++++ b/codex-rs/tui/src/bottom_pane/status_surface_preview.rs
+@@ -43,6 +43,7 @@ pub(crate) enum StatusSurfacePreviewItem {
+     Profile,
+     Provider,
+     TaskProgress,
++    Account,
+ }
+
+ impl StatusSurfacePreviewItem {
+@@ -83,6 +84,7 @@ impl StatusSurfacePreviewItem {
+             StatusSurfacePreviewItem::Profile => "profile: <name>",
+             StatusSurfacePreviewItem::Provider => "provider: <id>",
+             StatusSurfacePreviewItem::TaskProgress => "Tasks 0/0",
++            StatusSurfacePreviewItem::Account => "account",
+         }
+     }
+
+@@ -123,6 +125,7 @@ impl StatusSurfacePreviewItem {
+             Self::Profile,
+             Self::Provider,
+             Self::TaskProgress,
++            Self::Account,
+         ]
+         .into_iter()
+     }
+diff --git a/codex-rs/tui/src/chatwidget/input_submission.rs b/codex-rs/tui/src/chatwidget/input_submission.rs
+index 7d0c740..f73bea8 100644
+--- a/codex-rs/tui/src/chatwidget/input_submission.rs
++++ b/codex-rs/tui/src/chatwidget/input_submission.rs
+@@ -97,6 +97,15 @@ impl ChatWidget {
+         .0
+     }
+
++    pub(crate) fn submit_swift_side_message(&mut self, text: String) -> bool {
++        self.bottom_pane.set_composer_text(String::new(), Vec::new(), Vec::new());
++        if !self.composer_is_empty() { return false; }
++        self.submit_user_message_with_history_and_shell_escape_policy(
++            text.into(), UserMessageHistoryRecord::UserMessageText,
++            ShellEscapePolicy::Disallow, UserMessageSource::Prompt,
++        ).0
++    }
++
+     pub(super) fn submit_user_message_with_shell_escape_policy(
+         &mut self,
+         user_message: UserMessage,
+diff --git a/codex-rs/tui/src/chatwidget/settings.rs b/codex-rs/tui/src/chatwidget/settings.rs
+index 432fa65..a91c439 100644
+--- a/codex-rs/tui/src/chatwidget/settings.rs
++++ b/codex-rs/tui/src/chatwidget/settings.rs
+@@ -225,6 +225,7 @@ impl ChatWidget {
+             *email = current_email;
+             *workspace = current_workspace;
+         }
++        self.refresh_status_surfaces();
+     }
+
+     pub(crate) fn current_plan_type(&self) -> Option<PlanType> {
+diff --git a/codex-rs/tui/src/chatwidget/slash_dispatch.rs b/codex-rs/tui/src/chatwidget/slash_dispatch.rs
+index 79a9018..4505b2a 100644
+--- a/codex-rs/tui/src/chatwidget/slash_dispatch.rs
++++ b/codex-rs/tui/src/chatwidget/slash_dispatch.rs
+@@ -312,6 +312,31 @@ impl ChatWidget {
+             SlashCommand::Fork => {
+                 self.show_session_checkout_picker(ManagedWorktreeMode::Fork, /*name*/ None);
+             }
++            SlashCommand::Hfork => {
++                let Some(thread_id) = self.thread_id else {
++                    self.add_error_message(
++                        "Session is still starting; try /hfork again in a moment.".to_string(),
++                    );
++                    return;
++                };
++                if self
++                    .remote_connection
++                    .as_ref()
++                    .is_some_and(|connection| !connection.is_local_daemon)
++                {
++                    self.add_error_message(
++                        "/hfork requires a local Codex session inside Herdr.".to_string(),
++                    );
++                    return;
++                }
++                match crate::herdr_fork::start(thread_id, self.app_event_tx.clone()) {
++                    Ok(()) => self.add_info_message(
++                        "Forking into a Herdr pane on the right...".to_string(),
++                        None,
++                    ),
++                    Err(message) => self.add_error_message(message),
++                }
++            }
+             SlashCommand::Worktree => {
+                 self.show_managed_worktree_picker();
+             }
+@@ -1308,6 +1333,7 @@ impl ChatWidget {
+             | SlashCommand::Vim
+             | SlashCommand::Daybreak
+             | SlashCommand::Diff
++            | SlashCommand::Hfork
+             | SlashCommand::App
+             | SlashCommand::Rename
+             | SlashCommand::Voice
+diff --git a/codex-rs/tui/src/chatwidget/status_surfaces.rs b/codex-rs/tui/src/chatwidget/status_surfaces.rs
+index 997c3a2..963f285 100644
+--- a/codex-rs/tui/src/chatwidget/status_surfaces.rs
++++ b/codex-rs/tui/src/chatwidget/status_surfaces.rs
+@@ -849,6 +849,10 @@ impl ChatWidget {
+                 .or_else(|| self.thread_id.map(|id| id.to_string())),
+             StatusLineItem::WorkspaceHeadline => self.status_line_workspace_headline.clone(),
+             StatusLineItem::TaskProgress => self.terminal_title_task_progress(),
++            StatusLineItem::Account => self
++                .status_account_display
++                .as_ref()
++                .and_then(|account| account.short_name(&self.local_settings.tui.account_aliases)),
+         }
+     }
+
+@@ -897,6 +901,7 @@ impl ChatWidget {
+             StatusSurfacePreviewItem::Model => StatusLineItem::ModelName,
+             StatusSurfacePreviewItem::ModelWithReasoning => StatusLineItem::ModelWithReasoning,
+             StatusSurfacePreviewItem::Reasoning => StatusLineItem::Reasoning,
++            StatusSurfacePreviewItem::Account => StatusLineItem::Account,
+             StatusSurfacePreviewItem::Profile => StatusLineItem::Profile,
+             StatusSurfacePreviewItem::Provider => StatusLineItem::Provider,
+         };
+diff --git a/codex-rs/tui/src/chatwidget/tests/slash_commands.rs b/codex-rs/tui/src/chatwidget/tests/slash_commands.rs
+index e68d202..c048013 100644
+--- a/codex-rs/tui/src/chatwidget/tests/slash_commands.rs
++++ b/codex-rs/tui/src/chatwidget/tests/slash_commands.rs
+@@ -3286,6 +3286,42 @@ async fn slash_fork_requests_current_fork() {
+     );
+ }
+
++#[tokio::test]
++async fn slash_hfork_without_thread_never_submits_model_work() {
++    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
++    chat.thread_id = None;
++    chat.dispatch_command(SlashCommand::Hfork);
++    assert!(op_rx.try_recv().is_err());
++    let cells = drain_insert_history_transcript(&mut rx);
++    let rendered = cells
++        .iter()
++        .map(|lines| lines_to_single_string(lines))
++        .collect::<Vec<_>>()
++        .join("\n");
++    assert!(rendered.contains("try /hfork again"));
++}
++
++#[tokio::test]
++async fn slash_hfork_rejects_remote_server_without_model_work() {
++    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
++    chat.thread_id = Some(ThreadId::new());
++    chat.remote_connection = Some(crate::status::remote_connection::RemoteConnectionStatus {
++        address: "ws://fixture.invalid".to_string(),
++        version: "0.163.0".to_string(),
++        is_local_daemon: false,
++        is_managed_daemon: false,
++    });
++    chat.dispatch_command(SlashCommand::Hfork);
++    assert!(op_rx.try_recv().is_err());
++    let cells = drain_insert_history_transcript(&mut rx);
++    let rendered = cells
++        .iter()
++        .map(|lines| lines_to_single_string(lines))
++        .collect::<Vec<_>>()
++        .join("\n");
++    assert!(rendered.contains("requires a local Codex session"));
++}
++
+ #[tokio::test]
+ async fn slash_fork_with_name_requests_named_fork() {
+     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+diff --git a/codex-rs/tui/src/chatwidget/tests/status_and_layout.rs b/codex-rs/tui/src/chatwidget/tests/status_and_layout.rs
+index 9074c5e..1b31886 100644
+--- a/codex-rs/tui/src/chatwidget/tests/status_and_layout.rs
++++ b/codex-rs/tui/src/chatwidget/tests/status_and_layout.rs
+@@ -375,6 +375,73 @@ async fn status_line_git_summary_items_render_values() {
+     );
+ }
+
++#[tokio::test]
++async fn status_line_account_refreshes_from_live_account_updates() {
++    let (mut chat, _rx, _ops) = make_chatwidget_manual(/*model_override*/ None).await;
++    chat.local_settings.tui.status_line = Some(vec!["account".to_string()]);
++    chat.local_settings.tui.account_aliases = [
++        ("first@example.com".to_string(), "one".to_string()),
++        ("second@example.com".to_string(), "two".to_string()),
++    ]
++    .into_iter()
++    .collect();
++
++    chat.update_account_state(
++        Some(StatusAccountDisplay::ChatGpt {
++            email: None,
++            plan: None,
++            workspace: None,
++        }),
++        /*plan_type*/ None,
++        /*has_chatgpt_account*/ true,
++        /*has_codex_backend_auth*/ true,
++    );
++    assert_eq!(status_line_text(&chat), None);
++
++    chat.on_account_email_loaded(Some("first@example.com".to_string()), None);
++    assert_eq!(status_line_text(&chat), Some("one".to_string()));
++
++    chat.update_account_state(
++        Some(StatusAccountDisplay::ChatGpt {
++            email: None,
++            plan: None,
++            workspace: None,
++        }),
++        /*plan_type*/ None,
++        /*has_chatgpt_account*/ true,
++        /*has_codex_backend_auth*/ true,
++    );
++    assert_eq!(status_line_text(&chat), None);
++    chat.on_account_email_loaded(Some("second@example.com".to_string()), None);
++    assert_eq!(status_line_text(&chat), Some("two".to_string()));
++    let preview = chat
++        .status_surface_preview_data()
++        .status_line_for_items([StatusLineItem::Account], /*use_theme_colors*/ false)
++        .expect("account preview");
++    assert_eq!(
++        preview
++            .spans
++            .iter()
++            .map(|span| span.content.as_ref())
++            .collect::<String>(),
++        "two"
++    );
++
++    chat.update_account_state(
++        /*status_account_display*/ None, /*plan_type*/ None,
++        /*has_chatgpt_account*/ false, /*has_codex_backend_auth*/ false,
++    );
++    assert_eq!(status_line_text(&chat), None);
++
++    chat.update_account_state(
++        Some(StatusAccountDisplay::ApiKey),
++        /*plan_type*/ None,
++        /*has_chatgpt_account*/ false,
++        /*has_codex_backend_auth*/ true,
++    );
++    assert_eq!(status_line_text(&chat), Some("api".to_string()));
++}
++
+ #[tokio::test]
+ async fn raw_output_status_line_value_only_shows_when_enabled() {
+     let (mut chat, _rx, _ops) = make_chatwidget_manual(/*model_override*/ None).await;
+diff --git a/codex-rs/tui/src/herdr_fork.rs b/codex-rs/tui/src/herdr_fork.rs
+new file mode 100644
+index 0000000..6bf09ba
+--- /dev/null
++++ b/codex-rs/tui/src/herdr_fork.rs
+@@ -0,0 +1,223 @@
++//! Local Herdr integration. This path never submits a user turn or a model request.
++
++use crate::app_event::AppEvent;
++use crate::app_event_sender::AppEventSender;
++use crate::history_cell;
++use codex_protocol::ThreadId;
++use serde::Deserialize;
++use std::process::Stdio;
++use std::sync::atomic::AtomicBool;
++use std::sync::atomic::Ordering;
++use std::time::Duration;
++use std::time::SystemTime;
++use std::time::UNIX_EPOCH;
++use tokio::process::Command;
++
++static RUNNING: AtomicBool = AtomicBool::new(false);
++
++struct RunningGuard;
++
++impl Drop for RunningGuard {
++    fn drop(&mut self) {
++        RUNNING.store(false, Ordering::Release);
++    }
++}
++
++#[derive(Deserialize)]
++#[serde(rename_all = "camelCase")]
++struct ForkResult {
++    source_session: String,
++    new_pane: String,
++    new_session: String,
++    command_sent: bool,
++}
++
++pub(crate) fn start(thread_id: ThreadId, tx: AppEventSender) -> Result<(), String> {
++    if std::env::var("HERDR_ENV").as_deref() != Ok("1") {
++        return Err("/hfork requires a local Codex session inside Herdr.".to_string());
++    }
++    let pane = std::env::var("HERDR_PANE_ID")
++        .ok()
++        .filter(|pane| !pane.is_empty())
++        .ok_or_else(|| "Herdr did not provide the current pane ID.".to_string())?;
++    if RUNNING
++        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
++        .is_err()
++    {
++        return Err("A Herdr fork is already in progress.".to_string());
++    }
++    let guard = RunningGuard;
++    tokio::spawn(async move {
++        let _guard = guard;
++        let herdr = std::env::var("HERDR_BIN_PATH").unwrap_or_else(|_| "herdr".to_string());
++        let result = run("herdr-codex-fork-right", &herdr, &pane, thread_id).await;
++        let cell = match result {
++            Ok(fork) => history_cell::new_info_event(
++                format!(
++                    "Fork started in right pane {} (session {}). Original pane and focus preserved.",
++                    fork.new_pane, fork.new_session
++                ),
++                None,
++            ),
++            Err(message) => history_cell::new_error_event(message),
++        };
++        tx.send(AppEvent::InsertHistoryCell(Box::new(cell)));
++    });
++    Ok(())
++}
++
++async fn run(
++    helper: &str,
++    herdr: &str,
++    pane: &str,
++    thread_id: ThreadId,
++) -> Result<ForkResult, String> {
++    // SessionStart hooks may be deferred until the first turn. The TUI already
++    // knows its exact thread, so publish it without starting a model turn.
++    let sequence = SystemTime::now()
++        .duration_since(UNIX_EPOCH)
++        .map_err(|error| error.to_string())?
++        .as_nanos()
++        .to_string();
++    let report = tokio::time::timeout(
++        Duration::from_secs(15),
++        Command::new(herdr)
++            .args([
++                "pane",
++                "report-agent-session",
++                pane,
++                "--source",
++                "herdr:codex",
++                "--agent",
++                "codex",
++                "--agent-session-id",
++                &thread_id.to_string(),
++                "--seq",
++                &sequence,
++            ])
++            .stdin(Stdio::null())
++            .stdout(Stdio::null())
++            .stderr(Stdio::null())
++            .kill_on_drop(true)
++            .status(),
++    )
++    .await
++    .map_err(|_| {
++        "Reporting the current session to Herdr timed out; no fork was started.".to_string()
++    })?
++    .map_err(|error| format!("Could not report the current session to Herdr: {error}"))?;
++    if !report.success() {
++        return Err(
++            "Could not report the current session to Herdr; no fork was started.".to_string(),
++        );
++    }
++    let mut command = Command::new(helper);
++    command
++        .args([
++            "--pane",
++            pane,
++            "--expected-session-id",
++            &thread_id.to_string(),
++        ])
++        .stdin(Stdio::null())
++        .stdout(Stdio::piped())
++        .stderr(Stdio::piped())
++        .kill_on_drop(true);
++    let output = tokio::time::timeout(Duration::from_secs(150), command.output())
++        .await
++        .map_err(|_| "Herdr fork timed out. Check the pane layout before retrying.".to_string())?
++        .map_err(|error| format!("Could not run herdr-codex-fork-right: {error}"))?;
++    if !output.status.success() {
++        let message = String::from_utf8_lossy(&output.stderr).trim().to_string();
++        return Err(if message.is_empty() {
++            "Herdr fork failed; check the pane layout before retrying.".to_string()
++        } else {
++            message
++        });
++    }
++    let result: ForkResult = serde_json::from_slice(&output.stdout).map_err(|_| {
++        "Herdr fork returned an invalid response. Check the pane layout before retrying."
++            .to_string()
++    })?;
++    if !result.command_sent
++        || result.source_session != thread_id.to_string()
++        || result.new_session == result.source_session
++        || result.new_pane.is_empty()
++    {
++        return Err(
++            "Herdr fork did not confirm a new session. Check the pane layout before retrying."
++                .to_string(),
++        );
++    }
++    Ok(result)
++}
++
++#[cfg(all(test, unix))]
++mod tests {
++    use super::*;
++    use std::os::unix::fs::PermissionsExt;
++
++    fn fake_herdr(dir: &std::path::Path, parent: ThreadId) -> std::path::PathBuf {
++        let herdr = dir.join("herdr");
++        std::fs::write(&herdr, format!(
++            "#!/bin/sh\n[ \"$1\" = pane ] && [ \"$2\" = report-agent-session ] && [ \"$3\" = test:p1 ] && [ \"$5\" = herdr:codex ] && [ \"$9\" = {parent} ]\n"
++        )).unwrap();
++        std::fs::set_permissions(&herdr, std::fs::Permissions::from_mode(0o755)).unwrap();
++        herdr
++    }
++
++    #[tokio::test]
++    async fn hfork_runs_only_the_local_helper_with_the_exact_session() {
++        let dir = tempfile::tempdir().unwrap();
++        let helper = dir.path().join("helper");
++        let parent = ThreadId::new();
++        let child = ThreadId::new();
++        std::fs::write(&helper, format!(
++            "#!/bin/sh\n[ \"$1\" = --pane ] && [ \"$2\" = test:p1 ] && [ \"$3\" = --expected-session-id ] && [ \"$4\" = {parent} ] || exit 1\nprintf '%s\\n' '{{\"sourceSession\":\"{parent}\",\"newPane\":\"test:p2\",\"newSession\":\"{child}\",\"commandSent\":true}}'\n"
++        )).unwrap();
++        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
++        let herdr = fake_herdr(dir.path(), parent);
++        let result = run(
++            helper.to_str().unwrap(),
++            herdr.to_str().unwrap(),
++            "test:p1",
++            parent,
++        )
++        .await
++        .unwrap();
++        assert_eq!(result.new_session, child.to_string());
++        assert_eq!(result.new_pane, "test:p2");
++    }
++
++    #[tokio::test]
++    async fn hfork_never_forks_if_session_reporting_fails() {
++        let dir = tempfile::tempdir().unwrap();
++        let parent = ThreadId::new();
++        let herdr = fake_herdr(dir.path(), ThreadId::new());
++        let result = run(
++            "helper-must-not-run",
++            herdr.to_str().unwrap(),
++            "test:p1",
++            parent,
++        )
++        .await;
++        assert!(matches!(result, Err(message) if message.contains("no fork was started")));
++    }
++
++    #[tokio::test]
++    async fn hfork_reports_helper_failure_without_retrying() {
++        let dir = tempfile::tempdir().unwrap();
++        let helper = dir.path().join("helper");
++        std::fs::write(
++            &helper,
++            "#!/bin/sh\nprintf 'source session changed' >&2\nexit 1\n",
++        )
++        .unwrap();
++        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
++        let parent = ThreadId::new();
++        let herdr = fake_herdr(dir.path(), parent);
++        assert!(
++            matches!(run(helper.to_str().unwrap(), herdr.to_str().unwrap(), "test:p1", parent).await, Err(message) if message == "source session changed")
++        );
++    }
++}
+diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
+index 1b0b08c..285f93d 100644
+--- a/codex-rs/tui/src/lib.rs
++++ b/codex-rs/tui/src/lib.rs
+@@ -159,6 +159,8 @@ mod get_git_diff;
+ mod git_action_directives;
+ mod goal_display;
+ mod goal_files;
++mod herdr_fork;
++mod swift_side;
+ mod history_cell;
+ mod hooks_rpc;
+ mod ide_context;
+diff --git a/codex-rs/tui/src/local_settings.rs b/codex-rs/tui/src/local_settings.rs
+index 1d0d7eb..07d7ecc 100644
+--- a/codex-rs/tui/src/local_settings.rs
++++ b/codex-rs/tui/src/local_settings.rs
+@@ -76,6 +76,7 @@ impl LocalSettings {
+                 alternate_screen: config.tui_alternate_screen,
+                 status_line: config.tui_status_line.clone(),
+                 status_line_use_colors: config.tui_status_line_use_colors,
++                account_aliases: config.tui_account_aliases.clone(),
+                 terminal_title: config.tui_terminal_title.clone(),
+                 theme: config.tui_theme.clone(),
+                 pet: config.tui_pet.clone(),
+diff --git a/codex-rs/tui/src/slash_command.rs b/codex-rs/tui/src/slash_command.rs
+index dfd0538..63c564d 100644
+--- a/codex-rs/tui/src/slash_command.rs
++++ b/codex-rs/tui/src/slash_command.rs
+@@ -35,6 +35,7 @@ pub enum SlashCommand {
+     Delete,
+     Resume,
+     Fork,
++    Hfork,
+     Worktree,
+     App,
+     Init,
+@@ -105,6 +106,7 @@ impl SlashCommand {
+             SlashCommand::Delete => "permanently delete this session",
+             SlashCommand::Clear => "clear the terminal and start a new chat",
+             SlashCommand::Fork => "fork the current chat",
++            SlashCommand::Hfork => "fork into a new Herdr pane on the right (no model request)",
+             SlashCommand::Worktree => "start or continue a conversation in a new worktree",
+             SlashCommand::App => "continue this session in the Desktop app",
+             SlashCommand::Quit | SlashCommand::Exit => "exit Codex",
+@@ -271,6 +273,7 @@ impl SlashCommand {
+             | SlashCommand::MemoryDrop
+             | SlashCommand::MemoryUpdate => false,
+             SlashCommand::Diff
++            | SlashCommand::Hfork
+             | SlashCommand::Archive
+             | SlashCommand::Resume
+             | SlashCommand::Model
+diff --git a/codex-rs/tui/src/status/account.rs b/codex-rs/tui/src/status/account.rs
+index 733a6bf..775d745 100644
+--- a/codex-rs/tui/src/status/account.rs
++++ b/codex-rs/tui/src/status/account.rs
+@@ -1,3 +1,5 @@
++use std::collections::BTreeMap;
++
+ #[derive(Debug, Clone, PartialEq, Eq)]
+ pub(crate) enum StatusAccountDisplay {
+     ChatGpt {
+@@ -7,3 +9,82 @@ pub(crate) enum StatusAccountDisplay {
+     },
+     ApiKey,
+ }
++
++impl StatusAccountDisplay {
++    /// Resolve a short label from the connected server's account identity.
++    pub(crate) fn short_name(&self, aliases: &BTreeMap<String, String>) -> Option<String> {
++        let email = match self {
++            Self::ApiKey => return Some("api".to_string()),
++            Self::ChatGpt { email, .. } => email.as_deref()?.trim(),
++        };
++        let alias = aliases
++            .iter()
++            .find(|(address, _)| address.eq_ignore_ascii_case(email))
++            .map(|(_, alias)| alias.as_str());
++        alias.and_then(short_label).or_else(|| {
++            let local_part = email.split_once('@')?.0;
++            short_label(local_part)
++        })
++    }
++}
++
++fn short_label(value: &str) -> Option<String> {
++    let label: String = value
++        .chars()
++        .filter(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | '.'))
++        .take(12)
++        .collect();
++    (!label.is_empty()).then_some(label)
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use pretty_assertions::assert_eq;
++
++    fn account(email: Option<&str>) -> StatusAccountDisplay {
++        StatusAccountDisplay::ChatGpt {
++            email: email.map(str::to_string),
++            plan: None,
++            workspace: None,
++        }
++    }
++
++    #[test]
++    fn account_short_name_uses_case_insensitive_aliases() {
++        let aliases = BTreeMap::from([("alice@example.com".into(), "al".into())]);
++        assert_eq!(
++            account(Some("Alice@Example.com")).short_name(&aliases),
++            Some("al".into())
++        );
++        assert_eq!(
++            account(Some("bob@example.com")).short_name(&aliases),
++            Some("bob".into())
++        );
++    }
++
++    #[test]
++    fn account_short_name_handles_missing_identity_and_api_keys() {
++        let aliases = BTreeMap::new();
++        for email in [None, Some(""), Some("@example.com"), Some("unknown")] {
++            assert_eq!(account(email).short_name(&aliases), None);
++        }
++        assert_eq!(
++            StatusAccountDisplay::ApiKey.short_name(&aliases),
++            Some("api".into())
++        );
++    }
++
++    #[test]
++    fn account_short_name_keeps_labels_short_and_single_line() {
++        let aliases = BTreeMap::from([("alice@example.com".into(), "\n\u{1b}al\r".into())]);
++        assert_eq!(
++            account(Some("alice@example.com")).short_name(&aliases),
++            Some("al".into())
++        );
++        assert_eq!(
++            account(Some("averylongaccountname@example.com")).short_name(&aliases),
++            Some("averylongacc".into())
++        );
++    }
++}
+diff --git a/codex-rs/tui/src/swift_side.rs b/codex-rs/tui/src/swift_side.rs
+new file mode 100644
+index 0000000..8a9e176
+--- /dev/null
++++ b/codex-rs/tui/src/swift_side.rs
+@@ -0,0 +1,237 @@
++//! Same-process side thread access for Swift. No PTY input or second agent.
++use crate::app_event::AppEvent;
++use crate::app_event_sender::AppEventSender;
++use codex_app_server_client::{AppServerRequestHandle, TypedRequestError};
++use codex_app_server_protocol::{
++    ClientRequest, RequestId, ThreadForkParams, ThreadForkResponse, ThreadLoadedListParams,
++    ThreadLoadedListResponse, ThreadReadParams, ThreadReadResponse, ThreadUnsubscribeParams,
++    ThreadUnsubscribeResponse, TurnInterruptParams, TurnInterruptResponse,
++};
++use codex_protocol::ThreadId;
++use serde_json::{Value, json};
++use std::sync::{Arc, Mutex, OnceLock};
++use std::time::Duration;
++use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
++#[cfg(unix)]
++struct SocketGuard(String);
++#[cfg(unix)]
++impl Drop for SocketGuard {
++    fn drop(&mut self) {
++        let _ = std::fs::remove_file(&self.0);
++    }
++}
++static SENDER: OnceLock<Mutex<AppEventSender>> = OnceLock::new();
++
++pub(crate) fn start(sender: AppEventSender) {
++    #[cfg(unix)]
++    {
++        use std::os::unix::fs::PermissionsExt;
++        if std::env::var("HERDR_ENV").as_deref() != Ok("1") {
++            return;
++        }
++        if let Some(current) = SENDER.get() {
++            *current.lock().unwrap() = sender;
++            return;
++        }
++        let Ok(stat) = std::fs::read_to_string("/proc/self/stat") else {
++            return;
++        };
++        let Some(start) = stat
++            .rsplit_once(") ")
++            .and_then(|(_, rest)| rest.split_whitespace().nth(19))
++        else {
++            return;
++        };
++        let path = format!("/tmp/swift-codex-{}-{start}.sock", std::process::id());
++        let Ok(listener) = tokio::net::UnixListener::bind(&path) else {
++            return;
++        };
++        if std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).is_err() {
++            let _ = std::fs::remove_file(path);
++            return;
++        }
++        let _ = SENDER.set(Mutex::new(sender));
++        let guard = SocketGuard(path);
++        tokio::spawn(async move {
++            let _guard = guard;
++            // Bounded independent consumers keep a fork from blocking state/input.
++            let permits = Arc::new(tokio::sync::Semaphore::new(4));
++            loop {
++                let Ok((stream, _)) = listener.accept().await else {
++                    break;
++                };
++                let Ok(permit) = Arc::clone(&permits).try_acquire_owned() else {
++                    continue;
++                };
++                tokio::spawn(async move {
++                    let _permit = permit;
++                    let (read, mut write) = stream.into_split();
++                    let mut line = String::new();
++                    let mut read = BufReader::new(tokio::io::AsyncReadExt::take(read, 1049601));
++                    let request =
++                        tokio::time::timeout(Duration::from_secs(3), read.read_line(&mut line))
++                            .await;
++                    if !matches!(request, Ok(Ok(1..))) || line.len() > 1049600 {
++                        return;
++                    }
++                    let Ok(request) = serde_json::from_str::<Value>(&line) else {
++                        return;
++                    };
++                    let (reply, result) = tokio::sync::oneshot::channel();
++                    if let Some(sender) = SENDER.get() {
++                        sender
++                            .lock()
++                            .unwrap()
++                            .send(AppEvent::SwiftSideRequest { request, reply });
++                    }
++                    let value = match tokio::time::timeout(Duration::from_secs(30), result).await {
++                        Ok(Ok(value)) => value,
++                        _ => json!({"error":"Native side operation result is unconfirmed"}),
++                    };
++                    if let Ok(mut data) = serde_json::to_vec(&value) {
++                        data.push(b'\n');
++                        let _ =
++                            tokio::time::timeout(Duration::from_secs(3), write.write_all(&data))
++                                .await;
++                    }
++                });
++            }
++        });
++    }
++}
++
++pub(crate) fn handle(
++    request: Value,
++    reply: tokio::sync::oneshot::Sender<Value>,
++    main: Option<ThreadId>,
++    side: Option<ThreadId>,
++    active: Option<ThreadId>,
++    turn_id: Option<String>,
++    handle: AppServerRequestHandle,
++    request_id: RequestId,
++) {
++    let main_id = main.map(|id| id.to_string());
++    let side_id = side.map(|id| id.to_string());
++    let active_id = active.map(|id| id.to_string());
++    let operation = request["operation"].as_str().unwrap_or("").to_string();
++    if operation == "identity" {
++        let _ = reply.send(
++            json!({"version":1,"mainId":main_id,"sideId":side_id,"activeId":active_id,"data":{}}),
++        );
++        return;
++    }
++    if main_id.as_deref() != request["mainId"].as_str() {
++        let _ = reply.send(json!({"error":"Main thread changed"}));
++        return;
++    }
++    if operation != "read"
++        && operation != "state"
++        && operation != "fork"
++        && operation != "interrupt"
++    {
++        let _ = reply.send(json!({"error":"Unsupported side operation"}));
++        return;
++    }
++    if (operation == "fork" || operation == "interrupt")
++        && (side_id.is_none() || side_id.as_deref() != request["sideId"].as_str())
++    {
++        let _ = reply.send(json!({"error":"Side thread changed"}));
++        return;
++    }
++    tokio::spawn(async move {
++        let result = if operation == "interrupt" {
++            let expected = request["turnId"].as_str().unwrap_or("");
++            if active_id != side_id || expected.is_empty() || turn_id.as_deref() != Some(expected) {
++                Ok(json!({"interrupted":false}))
++            } else {
++                handle
++                    .request_typed::<TurnInterruptResponse>(ClientRequest::TurnInterrupt {
++                        request_id,
++                        params: TurnInterruptParams {
++                            thread_id: side_id.clone().unwrap(),
++                            turn_id: expected.to_string(),
++                        },
++                    })
++                    .await
++                    .map(|_| json!({"interrupted":true}))
++            }
++        } else if operation == "fork" {
++            let source = handle
++                .request_typed::<ThreadReadResponse>(ClientRequest::ThreadRead {
++                    request_id,
++                    params: ThreadReadParams {
++                        thread_id: side_id.clone().unwrap(),
++                        include_turns: false,
++                    },
++                })
++                .await;
++            match source {
++                Err(error) => Err(error),
++                Ok(source) => {
++                    let mut config = std::collections::HashMap::new();
++                    config.insert("thread_unload_delay_secs".to_string(), json!(0));
++                    if let Some(effort) = source.thread.reasoning_effort {
++                        config.insert(
++                            "model_reasoning_effort".to_string(),
++                            serde_json::to_value(effort).unwrap(),
++                        );
++                    }
++                    async {
++                        let fork = handle.request_typed::<ThreadForkResponse>(ClientRequest::ThreadFork {
++                            request_id: RequestId::String(format!("swift-side-fork-{}", uuid::Uuid::new_v4())),
++                            params: ThreadForkParams {
++                                thread_id: side_id.clone().unwrap(), model: source.thread.model,
++                                model_provider: Some(source.thread.model_provider), config: Some(config),
++                                exclude_turns: true, thread_source: Some(codex_app_server_protocol::ThreadSource::User), defer_goal_continuation: true, ..Default::default()
++                            },
++                        }).await?;
++                        // The new Tab needs its own writer. The creating TUI must
++                        // release only this newly created, idle persistent fork.
++                        handle.request_typed::<ThreadUnsubscribeResponse>(ClientRequest::ThreadUnsubscribe {
++                            request_id: RequestId::String(format!("swift-side-detach-{}", uuid::Uuid::new_v4())),
++                            params: ThreadUnsubscribeParams { thread_id: fork.thread.id.clone() },
++                        }).await?;
++                        let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
++                        while tokio::time::Instant::now() < deadline {
++                            let loaded = handle.request_typed::<ThreadLoadedListResponse>(ClientRequest::ThreadLoadedList {
++                                request_id: RequestId::String(format!("swift-side-detached-{}", uuid::Uuid::new_v4())),
++                                params: ThreadLoadedListParams::default(),
++                            }).await?;
++                            // Native removal happens after shutdown_and_wait,
++                            // including the persistent writer's flush and close.
++                            if !loaded.data.contains(&fork.thread.id) {
++                                return Ok(json!({"sessionId":fork.thread.id,"model":fork.model,
++                                    "modelProvider":fork.model_provider,"reasoningEffort":fork.reasoning_effort}));
++                            }
++                            tokio::time::sleep(Duration::from_millis(50)).await;
++                        }
++                        Err(TypedRequestError::Transport { method: "thread/unsubscribe".to_string(),
++                            source: std::io::Error::new(std::io::ErrorKind::TimedOut, "New fork writer release is unconfirmed") })
++                    }.await
++                }
++            }
++        } else if operation == "read"
++            && let Some(side_id) = side_id.as_ref()
++        {
++            handle
++                .request_typed::<ThreadReadResponse>(ClientRequest::ThreadRead {
++                    request_id,
++                    params: ThreadReadParams {
++                        thread_id: side_id.clone(),
++                        include_turns: true,
++                    },
++                })
++                .await
++                .map(|result| json!({"thread":result.thread}))
++        } else {
++            Ok(json!({}))
++        };
++        let result = match result {
++            Ok(data) => {
++                json!({"version":1,"mainId":main_id,"sideId":side_id,"activeId":active_id,"turnId":turn_id,"data":data})
++            }
++            Err(error) => json!({"error":error.to_string()}),
++        };
++        let _ = reply.send(result);
++    });
++}
+diff --git a/codex-rs/tui/src/update_action.rs b/codex-rs/tui/src/update_action.rs
+index 7b3433e..779da4b 100644
+--- a/codex-rs/tui/src/update_action.rs
++++ b/codex-rs/tui/src/update_action.rs
+@@ -12,6 +12,8 @@ pub enum UpdateAction {
+     Daemon(DaemonUpdateSource),
+     /// Update via `npm install -g @openai/codex@latest`.
+     NpmGlobalLatest,
++    /// Update and verify the shared Swift runtime before reporting success.
++    SwiftManaged,
+     /// Update via `bun install -g @openai/codex@latest`.
+     BunGlobalLatest,
+     /// Update via `vp install -g @openai/codex@latest`.
+@@ -47,6 +49,7 @@ impl UpdateAction {
+     pub fn command_args(self) -> (&'static str, &'static [&'static str]) {
+         match self {
+             UpdateAction::Daemon(source) => ("codex", source.command_args()),
++            UpdateAction::SwiftManaged => ("swift-codex", &["upgrade"]),
+             UpdateAction::NpmGlobalLatest => ("npm", &["install", "-g", "@openai/codex"]),
+             UpdateAction::BunGlobalLatest => ("bun", &["install", "-g", "@openai/codex"]),
+             UpdateAction::VitePlusGlobalLatest => ("vp", &["install", "-g", "@openai/codex"]),
+@@ -81,6 +84,9 @@ impl UpdateAction {
+
+ #[cfg(not(debug_assertions))]
+ pub fn get_update_action() -> Option<UpdateAction> {
++    if std::env::var_os("SWIFT_CODEX_ROOT").is_some() {
++        return Some(UpdateAction::SwiftManaged);
++    }
+     UpdateAction::from_install_context(InstallContext::current())
+ }
+
+@@ -90,6 +96,14 @@ mod tests {
+     use codex_utils_absolute_path::AbsolutePathBuf;
+     use pretty_assertions::assert_eq;
+
++    #[test]
++    fn swift_update_uses_shared_runtime_manager() {
++        assert_eq!(
++            UpdateAction::SwiftManaged.command_args(),
++            ("swift-codex", &["upgrade"][..])
++        );
++    }
++
+     #[test]
+     fn maps_install_context_to_update_action() {
+         let native_release_dir =
+diff --git a/codex-rs/tui/src/updates.rs b/codex-rs/tui/src/updates.rs
+index 9bbdf31..7aa18d4 100644
+--- a/codex-rs/tui/src/updates.rs
++++ b/codex-rs/tui/src/updates.rs
+@@ -94,7 +94,8 @@ async fn check_for_update(
+                 .await?;
+             version
+         }
+-        Some(UpdateAction::NpmGlobalLatest)
++        Some(UpdateAction::SwiftManaged)
++        | Some(UpdateAction::NpmGlobalLatest)
+         | Some(UpdateAction::BunGlobalLatest)
+         | Some(UpdateAction::VitePlusGlobalLatest)
+         | Some(UpdateAction::PnpmGlobalLatest) => {

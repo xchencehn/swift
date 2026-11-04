@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 网络切换（Wi-Fi 与蜂窝互换）时立刻重连那一条加密连接（docs/LOCAL_FIRST.md） -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
+    <application
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@drawable/ic_launcher"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:usesCleartextTraffic="true"
+        android:theme="@style/AppTheme"
+        android:label="@string/app_name">
+        <!-- 入口 Activity 由各 flavor 自己声明:终端版是 MainActivity,
+             会话版是 ChatActivity。两个 APP 各自独立,没有共同的入口。 -->
+    </application>
+</manifest>

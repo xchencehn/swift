@@ -1,0 +1,44 @@
+node_modules/
+.env
+artifacts/*
+!artifacts/.gitkeep
+npm-debug.log*
+*.log
+
+# Native Android client: generated and private build inputs.
+android/.gradle/
+android/local.properties
+android/agent-studio.properties
+android/signing.properties
+android/private/
+android/app/build/
+android/build/
+android/*.jks
+
+# Local configuration, runtime data, history and validation evidence.
+.local/
+
+# Tauri resources, Rust outputs and local cross-compilation SDK.
+desktop/dist/
+desktop/target/
+desktop/.xwin-cache/
+desktop/src-tauri/gen/
+
+# Python caches from repository-local design tools.
+.agents/skills/**/__pycache__/
+
+# Python bytecode is generated locally.
+__pycache__/
+*.py[cod]
+
+# Local environment overrides and editor files.
+.env.*
+!.env.example
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Optional local agent skill links are not public source dependencies.
+.agents/skills
+.claude/skills

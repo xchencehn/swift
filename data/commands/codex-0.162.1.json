@@ -1,0 +1,203 @@
+{
+  "provider": "codex",
+  "version": "0.162.1",
+  "source": "isolated-native-slash-menu",
+  "commands": [
+    {
+      "name": "model",
+      "description": "choose what model and reasoning effort to use"
+    },
+    {
+      "name": "ide",
+      "description": "include current selection, open files, and other context"
+    },
+    {
+      "name": "permissions",
+      "description": "choose what Codex is allowed to do"
+    },
+    {
+      "name": "keymap",
+      "description": "remap TUI shortcuts"
+    },
+    {
+      "name": "vim",
+      "description": "toggle Vim mode for the composer"
+    },
+    {
+      "name": "experimental",
+      "description": "toggle experimental features"
+    },
+    {
+      "name": "approve",
+      "description": "approve one retry of a recent auto-review denial"
+    },
+    {
+      "name": "memories",
+      "description": "configure memory use and generation"
+    },
+    {
+      "name": "skills",
+      "description": "use skills to improve how Codex performs specific tasks"
+    },
+    {
+      "name": "import",
+      "description": "import setup, this project, and recent chats from Claude"
+    },
+    {
+      "name": "hooks",
+      "description": "view and manage lifecycle hooks"
+    },
+    {
+      "name": "review",
+      "description": "review my current changes and find issues"
+    },
+    {
+      "name": "rename",
+      "description": "rename the current thread"
+    },
+    {
+      "name": "new",
+      "description": "start a new chat during a conversation"
+    },
+    {
+      "name": "archive",
+      "description": "archive this session"
+    },
+    {
+      "name": "delete",
+      "description": "permanently delete this session"
+    },
+    {
+      "name": "resume",
+      "description": "resume a saved chat"
+    },
+    {
+      "name": "fork",
+      "description": "fork the current chat"
+    },
+    {
+      "name": "worktree",
+      "description": "start or continue a conversation in a new worktree"
+    },
+    {
+      "name": "init",
+      "description": "create an AGENTS.md file with instructions for Codex"
+    },
+    {
+      "name": "compact",
+      "description": "summarize conversation to prevent hitting the context"
+    },
+    {
+      "name": "recap",
+      "description": "summarize the current conversation now"
+    },
+    {
+      "name": "plan",
+      "description": "switch to Plan mode"
+    },
+    {
+      "name": "goal",
+      "description": "set or view the goal for a long-running task"
+    },
+    {
+      "name": "agents",
+      "description": "open the agent command center"
+    },
+    {
+      "name": "side",
+      "description": "start a side conversation in an ephemeral fork"
+    },
+    {
+      "name": "copy",
+      "description": "copy the last response or part of it"
+    },
+    {
+      "name": "export",
+      "description": "export the conversation as markdown"
+    },
+    {
+      "name": "raw",
+      "description": "toggle raw scrollback mode for copy-friendly terminal"
+    },
+    {
+      "name": "tui",
+      "description": "choose the TUI mode for the next launch"
+    },
+    {
+      "name": "diff",
+      "description": "show git diff (including untracked files)"
+    },
+    {
+      "name": "mention",
+      "description": "mention a file"
+    },
+    {
+      "name": "status",
+      "description": "show current session configuration and token usage"
+    },
+    {
+      "name": "daemon",
+      "description": "Manage the local background server"
+    },
+    {
+      "name": "warnings",
+      "description": "view retained warnings and diagnostic details"
+    },
+    {
+      "name": "cd",
+      "description": "change the current working directory"
+    },
+    {
+      "name": "pwd",
+      "description": "show the current working directory"
+    },
+    {
+      "name": "title",
+      "description": "configure which items appear in the terminal title"
+    },
+    {
+      "name": "statusline",
+      "description": "configure which items appear in the status line"
+    },
+    {
+      "name": "theme",
+      "description": "choose a syntax highlighting theme"
+    },
+    {
+      "name": "pets",
+      "description": "choose or hide the terminal pet"
+    },
+    {
+      "name": "mcp",
+      "description": "list MCP tools; use /mcp verbose or /mcp login <name>"
+    },
+    {
+      "name": "plugins",
+      "description": "browse plugins"
+    },
+    {
+      "name": "logout",
+      "description": "log out of Codex"
+    },
+    {
+      "name": "exit",
+      "description": "exit Codex"
+    },
+    {
+      "name": "feedback",
+      "description": "send logs to maintainers"
+    },
+    {
+      "name": "ps",
+      "description": "list background terminals"
+    },
+    {
+      "name": "stop",
+      "description": "stop all background terminals"
+    },
+    {
+      "name": "clear",
+      "description": "clear the terminal and start a new chat"
+    }
+  ]
+}

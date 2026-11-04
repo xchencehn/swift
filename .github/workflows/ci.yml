@@ -1,0 +1,106 @@
+name: CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  node:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run validate -- fast
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: node-${{ matrix.node }}-evidence
+          path: artifacts/validation/
+          retention-days: 14
+  browser:
+    runs-on: ubuntu-latest
+    env:
+      SWIFT_VALIDATION_BROWSER: firefox
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npx playwright install --with-deps firefox
+      - run: npm run validate -- browser
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-evidence
+          path: artifacts/
+          retention-days: 14
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm run validate -- android-debug
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-debug-evidence
+          path: |
+            android/app/build/reports/
+            artifacts/validation/
+          retention-days: 14
+  package:
+    needs: [node, browser, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run validate -- install
+      - run: node scripts/release/package-release.js --server-only
+      - uses: actions/upload-artifact@v4
+        with:
+          name: swift-server-${{ github.sha }}
+          path: artifacts/release/
+  desktop:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - run: npm run validate -- desktop-ci
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: swift-windows-executable-${{ github.sha }}
+          path: |
+            desktop/target/release/swift-desktop.exe
+            artifacts/validation/

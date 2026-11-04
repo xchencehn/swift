@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+  <meta charset="utf-8" /><title>HTML 预览</title>
+  <script>
+    'use strict';
+    // This document has its own restrictive HTTP CSP and an opaque sandbox origin.
+    // Receive only document bytes, never an app URL, token, root settings or bridge.
+    addEventListener('message', function initialize(event) {
+      if (
+        event.source !== parent ||
+        event.data?.type !== 'swift.html.document' ||
+        typeof event.data.text !== 'string' ||
+        !event.ports[0]
+      )
+        return;
+      removeEventListener('message', initialize);
+      const port = event.ports[0];
+      // Keep navigation on a private channel. Document scripts cannot forge parent
+      // messages to open files; only actual link clicks reach the reading stack.
+      document.open();
+      document.addEventListener('click', (event) => {
+        const link = event.target.closest?.('a[href]');
+        if (!link || !event.isTrusted || event.defaultPrevented) return;
+        const href = link.getAttribute('href') || '';
+        if (href.startsWith('#')) return;
+        event.preventDefault();
+        port.postMessage({ type: 'link', href });
+      });
+      document.write(event.data.text);
+      document.close();
+      port.postMessage({ type: 'rendered' });
+    });
+  </script>
+</html>

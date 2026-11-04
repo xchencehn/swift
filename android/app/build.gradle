@@ -1,0 +1,110 @@
+plugins {
+    id 'com.android.application'
+}
+
+def signingPropertiesFile = rootProject.file(providers.gradleProperty('swiftSigningProperties').getOrElse('signing.properties'))
+def signingProperties = new Properties()
+if (signingPropertiesFile.isFile()) {
+    signingPropertiesFile.withInputStream { signingProperties.load(it) }
+}
+
+android {
+    namespace 'io.agentstudio'
+    compileSdk 36
+
+    // Shared connection code is compiled independently into each flavor.
+    sourceSets {
+        chat.java.srcDir 'src/connection/java'
+        terminal.java.srcDir 'src/connection/java'
+    }
+    flavorDimensions = ['edition']
+    productFlavors {
+        terminal {
+            dimension 'edition'
+            applicationId 'io.agentstudio.swift.terminal'
+        }
+        chat {
+            dimension 'edition'
+            applicationId 'io.agentstudio.chat'
+            versionCode 77
+            versionName '0.20.2'
+
+        }
+    }
+
+    defaultConfig {
+        minSdk 26
+        targetSdk 36
+        versionCode 68
+        versionName '0.20.2'
+        testInstrumentationRunner 'io.agentstudio.connection.DirectInstrumentation'
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    signingConfigs {
+        if (signingPropertiesFile.isFile()) {
+            personal {
+                storeFile new File(signingPropertiesFile.parentFile, signingProperties.getProperty('storeFile'))
+                storePassword signingProperties.getProperty('storePassword')
+                keyAlias signingProperties.getProperty('keyAlias')
+                keyPassword signingProperties.getProperty('keyPassword')
+                storeType signingProperties.getProperty('storeType', 'PKCS12')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (signingPropertiesFile.isFile()) {
+                signingConfig signingConfigs.personal
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    packaging {
+        jniLibs {
+            // This client uses the pure-Java emulator and Canvas renderer only.
+            // TerminalSession's local PTY JNI is neither loaded nor shipped.
+            excludes += ['**/libtermux.so']
+        }
+    }
+}
+
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        variant.outputs.each { output ->
+            output.outputFileName.set("swift-${variant.flavorName}-${variant.buildType}.apk")
+        }
+    }
+}
+
+tasks.configureEach { task ->
+    if (task.name == 'preReleaseBuild') {
+        task.doFirst {
+            if (!signingPropertiesFile.isFile()) {
+                throw new GradleException('Release signing is not initialized.')
+            }
+
+        }
+    }
+}
+
+dependencies {
+    // Terminal dependencies are excluded from the WebView chat flavor.
+    terminalImplementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    // 0.118.0 is the latest release published as reusable JitPack libraries.
+    terminalImplementation 'com.termux.termux-app:terminal-view:0.118.0'
+    testImplementation 'junit:junit:4.13.2'
+
+}

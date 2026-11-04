@@ -1,0 +1,86 @@
+.server-dialog {
+  box-sizing: border-box;
+  width: min(520px, calc(100vw - 32px));
+  max-width: none;
+  max-height: calc(100dvh - 48px);
+  margin: auto;
+  padding: 24px;
+  border: 1px solid var(--line, #38383f);
+  border-radius: 14px;
+  background: var(--bg, #17171a);
+  color: var(--text, #e8e8ec);
+  overflow: auto;
+  overscroll-behavior: contain;
+  font: inherit;
+}
+.server-dialog::backdrop {
+  background: rgb(0 0 0 / 40%);
+}
+.server-dialog-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.server-dialog-heading h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 500;
+}
+.server-dialog-heading button {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  min-height: 36px;
+  padding: 8px;
+  background: transparent;
+  color: inherit;
+  border: 0;
+}
+.server-dialog fieldset {
+  margin-top: 20px;
+}
+.server-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+.server-dialog .server-dialog-actions #connectButton {
+  width: auto;
+  margin: 0;
+}
+#serverListStatus:empty {
+  display: none;
+}
+
+.profile .profileInfo {
+  display: block;
+  text-align: left;
+  padding: 8px 4px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  min-width: 0;
+  flex: 1;
+  border-radius: 8px;
+  font: inherit;
+  cursor: pointer;
+}
+.profile .profileInfo:hover {
+  background: var(--control, #2c2c32);
+}
+.server-root-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+#editServerRootFields {
+  margin-top: 20px;
+}
+.server-dialog .server-update-settings {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line, #38383f);
+}

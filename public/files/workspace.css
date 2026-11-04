@@ -1,0 +1,637 @@
+/* DeepSeek Harness tree geometry adapted to Swift's existing theme tokens. */
+.workspace-files-tree {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: visible;
+}
+.workspace-tree-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 38px;
+  padding: 0 8px 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+.workspace-tree-path {
+  flex: 1;
+  min-width: 0;
+  color: var(--muted);
+  font:
+    calc(11px * var(--device-font-scale, 1))/1.5 ui-monospace,
+    monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Reach the sidebar edge; keep the scrollbar above the inner half of the resize handle. */
+.workspace-tree-body {
+  position: relative;
+  z-index: 6;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  margin-inline-end: -12px;
+  padding: 8px 16px 8px 4px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(var(--surface-rgb, 255, 255, 255), 0.08) transparent;
+}
+.workspace-tree-body::-webkit-scrollbar {
+  width: 2px;
+  height: 2px;
+}
+.workspace-tree-body::-webkit-scrollbar-track,
+.workspace-tree-body::-webkit-scrollbar-corner {
+  background: transparent;
+}
+.workspace-tree-body::-webkit-scrollbar-thumb {
+  border: 0;
+  border-radius: 1px;
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.08);
+}
+.workspace-tree-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.18);
+}
+.workspace-tree-body::-webkit-scrollbar-thumb:active {
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.26);
+}
+.workspace-tree-body::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+@supports selector(::-webkit-scrollbar) {
+  /* Chromium's standard scrollbar properties otherwise override the 2px native styling. */
+  .workspace-tree-body {
+    scrollbar-width: auto;
+    scrollbar-color: auto;
+  }
+}
+.workspace-tree-level {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.workspace-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  min-height: 31px;
+  padding: 5px 10px 5px calc(8px + var(--tree-depth, 0) * 18px);
+  border: 0;
+  border-radius: 4px;
+  color: var(--text);
+  background: transparent;
+  font: inherit;
+  font-size: calc(13px * var(--device-font-scale, 1));
+  text-align: left;
+  cursor: pointer;
+}
+.workspace-tree-row svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  color: var(--muted);
+}
+.workspace-tree-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-tree-row[aria-selected='true'],
+.workspace-tree-row:hover:not(:disabled) {
+  background: var(--panel-2);
+}
+.workspace-tree-row:disabled {
+  color: var(--muted);
+  cursor: default;
+  opacity: 0.7;
+}
+.workspace-tree-note,
+.workspace-file-notice {
+  padding: 4px 12px;
+  color: var(--muted);
+  font-size: calc(12px * var(--device-font-scale, 1));
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.workspace-file-notice:empty {
+  display: none;
+}
+.workspace-inline-action {
+  color: var(--text);
+  background: var(--control);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 5px 10px;
+  margin: 4px 8px;
+  cursor: pointer;
+  font: inherit;
+}
+.workspace-files-page {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg);
+}
+.chat-main:has(> .workspace-files-page:not([hidden])) .message-navigation {
+  display: none;
+}
+.workspace-files-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  min-width: 0;
+  height: var(--navigation-height, 44px);
+  min-height: var(--navigation-height, 44px);
+  padding: 0 12px;
+  background: var(--panel);
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+.workspace-files-header > .chat-icon-btn {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+}
+.workspace-file-tabs {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  align-items: center;
+  overscroll-behavior-inline: contain;
+  touch-action: pan-x;
+}
+.workspace-file-tabs::-webkit-scrollbar {
+  display: none;
+}
+.workspace-file-tab {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  max-width: 180px;
+  position: relative;
+  border-radius: var(--navigation-tab-radius);
+  color: var(--muted);
+}
+.workspace-file-tab + .workspace-file-tab::before {
+  content: '';
+  width: 1px;
+  height: 12px;
+  background: var(--muted);
+  opacity: 0.25;
+  position: absolute;
+  left: 0;
+  pointer-events: none;
+}
+.workspace-file-tab:hover,
+.workspace-file-tab.selected {
+  color: var(--text);
+  background: var(--navigation-tab-background);
+}
+.workspace-file-tab:hover::before,
+.workspace-file-tab:hover + .workspace-file-tab::before,
+.workspace-file-tab.selected::before,
+.workspace-file-tab.selected + .workspace-file-tab::before {
+  opacity: 0;
+}
+.workspace-file-tab.context-menu-target {
+  background: var(--control);
+}
+.workspace-file-select {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  min-width: 0;
+  height: var(--navigation-tab-height);
+  padding: 0 6px 0 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  font: inherit;
+  font-size: calc(13px * var(--device-font-scale, 1));
+}
+.workspace-file-tab.selected .workspace-file-select {
+  font-weight: 600;
+}
+.workspace-file-close {
+  display: grid;
+  place-items: center;
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 0;
+  width: 24px;
+  height: var(--navigation-tab-height);
+  border-radius: 5px;
+  font-size: 17px;
+  cursor: pointer;
+}
+.workspace-file-close:hover {
+  color: var(--text);
+  background: var(--control);
+}
+@media (min-width: 761px) {
+  .chat-view:not(.sidebar-collapsed) .workspace-files-header > .workspace-files-sidebar {
+    display: none;
+  }
+}
+.workspace-file-toolbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  min-height: 38px;
+  border-bottom: 1px solid var(--line);
+  padding: 0 10px;
+}
+.workspace-file-tools {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+.workspace-file-path {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: calc(12px * var(--device-font-scale, 1));
+}
+.workspace-path-part {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 8px 0;
+  font: inherit;
+}
+.workspace-path-name {
+  color: var(--text);
+}
+.workspace-file-path > * {
+  flex: none;
+}
+.workspace-file-source,
+.workspace-file-action {
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  padding: 6px;
+  cursor: pointer;
+  font: inherit;
+  font-size: calc(12px * var(--device-font-scale, 1));
+}
+.workspace-file-action:hover,
+.workspace-file-source:hover {
+  background: var(--control);
+  color: var(--text);
+}
+.workspace-file-save {
+  color: var(--text);
+  background: var(--control);
+}
+.workspace-file-tools button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.workspace-file-tab.modified .workspace-file-select::after {
+  content: '';
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-inline-start: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  vertical-align: middle;
+}
+.workspace-file-views {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+}
+.workspace-file-view {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 18px 24px;
+}
+.workspace-file-document {
+  min-height: 100%;
+  min-width: 0;
+}
+.workspace-file-document .project-doc-head {
+  display: none;
+}
+.workspace-file-document .project-doc-body {
+  margin: 0;
+}
+.workspace-file-document .html-document {
+  min-height: 65vh;
+}
+.workspace-file-document .doc-image {
+  max-width: 100%;
+  height: auto;
+}
+.workspace-file-document.html-document {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.workspace-file-media {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  margin: auto;
+}
+iframe.workspace-file-media {
+  width: 100%;
+  height: 100%;
+  min-height: 65vh;
+  border: 0;
+}
+.workspace-file-status {
+  color: var(--muted);
+  padding: 10px;
+  overflow-wrap: anywhere;
+}
+.workspace-file-view:focus {
+  outline: none;
+}
+.workspace-file-view:focus-visible {
+  outline: 1px solid var(--muted);
+  outline-offset: -2px;
+}
+.workspace-files-page button:focus-visible,
+.workspace-files-tree button:focus-visible {
+  outline: 1px solid var(--muted);
+  outline-offset: -2px;
+}
+.workspace-files-page {
+  container: workspace-files / inline-size;
+}
+.workspace-file-code-view {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+.workspace-code-surface {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.workspace-code-footer {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 16px;
+  min-height: 28px;
+  padding: 2px 16px;
+  box-sizing: border-box;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  background: var(--bg);
+  font-size: calc(11px * var(--device-font-scale, 1));
+}
+.workspace-code-position {
+  flex: none;
+  margin-inline-start: auto;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.workspace-editor-notice {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  color: var(--muted);
+  font-size: calc(11px * var(--device-font-scale, 1));
+  overflow-wrap: anywhere;
+}
+.workspace-editor-notice[data-error] {
+  color: var(--danger, #e47777);
+}
+.workspace-markdown-view {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(176px, 19%, 240px);
+  padding: 0;
+  overflow: hidden;
+}
+.workspace-markdown-reader {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px 24px 60px;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.workspace-markdown-reader > .workspace-file-document {
+  width: min(100%, var(--workspace-markdown-width, 900px));
+  margin-inline: auto;
+}
+.workspace-markdown-reader :is(h1, h2, h3, h4, h5, h6):focus {
+  outline: none;
+}
+.workspace-file-outline {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 12px 32px;
+  border-left: 1px solid var(--line);
+  scrollbar-width: thin;
+  background: var(--bg);
+}
+.workspace-outline-title {
+  position: sticky;
+  top: -16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 32px;
+  margin-bottom: 8px;
+  color: var(--muted);
+  background: var(--bg);
+  font-size: calc(12px * var(--device-font-scale, 1));
+}
+.workspace-outline-close {
+  width: 28px;
+  height: 28px;
+  font-size: 18px;
+}
+.workspace-outline-link {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 4px;
+  padding: 7px 8px 7px calc(8px + var(--heading-depth, 0) * 12px);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: calc(12px * var(--device-font-scale, 1));
+  line-height: 1.6;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.workspace-outline-link:hover,
+.workspace-outline-link[aria-current] {
+  color: var(--text);
+  background: var(--control);
+}
+.workspace-outline-link[aria-current] {
+  font-weight: 600;
+}
+.workspace-outline-empty {
+  color: var(--muted);
+  font-size: calc(12px * var(--device-font-scale, 1));
+  line-height: 1.6;
+}
+.workspace-markdown-view.outline-closed {
+  grid-template-columns: minmax(0, 1fr);
+}
+.workspace-markdown-view.outline-closed .workspace-file-outline {
+  display: none;
+}
+.workspace-markdown-resizer {
+  position: absolute;
+  top: 12px;
+  z-index: 2;
+  width: 20px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.workspace-markdown-resizer::after {
+  content: '';
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 9px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--muted);
+  opacity: 0;
+}
+.workspace-markdown-resizer:hover::after,
+.workspace-markdown-resizer:focus-visible::after,
+.resizing-chat-content .workspace-markdown-resizer::after {
+  opacity: 0.55;
+}
+.workspace-markdown-resizer:focus-visible {
+  outline: 1px solid var(--muted);
+  outline-offset: -2px;
+}
+@container workspace-files (max-width: 760px) {
+  .workspace-markdown-view {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .workspace-file-outline {
+    display: none;
+    position: absolute;
+    inset: 0 0 0 auto;
+    z-index: 3;
+    width: min(260px, calc(100% - 48px));
+    box-sizing: border-box;
+    box-shadow: -8px 0 24px rgba(0, 0, 0, 0.12);
+  }
+  .workspace-markdown-view.outline-open .workspace-file-outline {
+    display: block;
+  }
+}
+@container workspace-files (max-width: 600px) {
+  .workspace-file-toolbar {
+    flex-wrap: wrap;
+    padding: 0 6px;
+    gap: 0;
+  }
+  .workspace-file-path {
+    flex-basis: 100%;
+  }
+  .workspace-file-tools {
+    width: 100%;
+    justify-content: flex-end;
+    gap: 0;
+  }
+}
+@media (pointer: coarse) {
+  .workspace-tree-row {
+    min-height: 40px;
+  }
+  .workspace-files-page .chat-icon-btn,
+  .workspace-tree-header .chat-icon-btn {
+    min-width: 36px;
+    min-height: 36px;
+  }
+  .workspace-files-header > .chat-icon-btn {
+    width: 44px;
+    height: 44px;
+  }
+  .workspace-file-select,
+  .workspace-file-close {
+    height: var(--navigation-tab-height);
+  }
+  .workspace-file-close {
+    width: 36px;
+  }
+  .workspace-files-page .workspace-file-toolbar .chat-icon-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .workspace-file-action,
+  .workspace-file-source {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .workspace-outline-link {
+    min-height: 44px;
+  }
+  .workspace-outline-close {
+    width: 44px;
+    height: 44px;
+  }
+}
+@media (max-width: 760px) {
+  .workspace-file-view {
+    padding: 14px 12px;
+  }
+  .workspace-file-code-view {
+    padding: 0;
+  }
+  .workspace-file-tab {
+    max-width: 180px;
+  }
+  .workspace-markdown-view {
+    padding: 0;
+  }
+  .workspace-markdown-reader {
+    padding: 16px 16px 40px;
+  }
+}

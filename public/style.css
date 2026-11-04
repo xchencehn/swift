@@ -1,0 +1,7413 @@
+/* Limit the UI CJK face to CJK glyphs so Latin terminal metrics stay monospace. */
+@font-face {
+  font-family: 'Swift Terminal CJK';
+  src:
+    local('PingFang SC'), local('Hiragino Sans GB'), local('Microsoft YaHei'),
+    local('Noto Sans CJK SC'), local('Noto Sans SC'), local('Source Han Sans CN');
+  unicode-range:
+    U+2E80-303F, U+3100-312F, U+31A0-31EF, U+3400-9FFF, U+F900-FAFF, U+FE10-FE1F, U+FE30-FE4F,
+    U+FF01-FF60, U+FFE0-FFE6, U+20000-323AF;
+}
+:root {
+  --motion-feedback: 120ms;
+  --motion-disclosure: 140ms;
+  --motion-reorder: 180ms;
+  --motion-panel: 260ms;
+  --ease-feedback: ease-out;
+  --ease-spatial: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --control-radius: 5px;
+  --control-gap: 4px;
+  --control-touch-size: 44px;
+  color-scheme: dark;
+  /* 暗色下的正文不用近纯白:#f9fafb 对底是 17.45:1,长时间读会起光晕,眼睛累。
+     现在正文 10.39:1、气泡里 8.96:1 —— 仍高于 AAA 的 7:1,只是不再刺眼。
+     这一档是用户实际看过之后定的(「白色字太刺眼」「稍微暗点」),不是纯按数值挑的。
+     黑阶也收敛过:原来侧栏 #0b0b0b、输入框 #090909 近乎纯黑,与 --bg 之间是断层。 */
+  --bg: #17171a;
+  --panel: #1d1d21;
+  --panel-2: #24242a;
+  --control: #2c2c33;
+  --text: #c4c5cb;
+  --muted: #a3a3ad;
+  --faint: #82828d;
+  --line: rgba(var(--surface-rgb, 255, 255, 255), 0.14);
+  --accent: #b8bac2;
+  --accent-ink: #1b1b1f;
+  --observe: #9ecbff;
+  --folder-icon: #9ecbff;
+  --blocked: #ffd68a;
+  --danger: #ff9a8d;
+  --sidebar: 300px;
+  --touch: 44px;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+}
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+button {
+  color: inherit;
+  border: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible,
+a:focus-visible {
+  outline: none;
+}
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.34;
+}
+[hidden] {
+  display: none !important;
+}
+
+/* 高度跟着可视视口走,不能写死 100dvh —— 安卓 Chrome 的 dvh 不随软键盘收缩,
+   写死就等于页面留在原处被键盘盖掉一大半。--visual-viewport-height 由
+   public/visual-viewport.js 用 visualViewport API 驱动。
+   只有一栏:网页版只剩会话页(它自己带左栏),外壳不再需要分栏。 */
+.app-shell {
+  height: var(--visual-viewport-height, 100dvh);
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  background: var(--bg);
+}
+/* The keyboard may pan the visual viewport as well as shorten it. Keep the
+   whole touch surface in that rectangle, without moving individual controls. */
+:root[data-visual-viewport] .app-shell {
+  position: fixed;
+  inset-inline: 0;
+  top: var(--visual-viewport-offset-top, 0px);
+}
+.sidebar {
+  min-width: 0;
+  background: #101013;
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  padding: 16px 12px max(12px, env(safe-area-inset-bottom));
+  z-index: 20;
+}
+.brand-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 0 4px 12px;
+}
+.brand-mark {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  border: 1px solid var(--line);
+  color: var(--accent);
+  background: var(--panel);
+  border-radius: 10px;
+  font-family: ui-monospace, monospace;
+  font-weight: 800;
+}
+.brand-copy {
+  min-width: 0;
+}
+.brand {
+  font-size: calc(15px * var(--device-font-scale, 1));
+  font-weight: 750;
+}
+.brand-sub {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: calc(10px * var(--device-font-scale, 1));
+}
+.sidebar-close {
+  margin-left: auto;
+  display: none !important;
+}
+.sidebar-actions {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 7px;
+  padding: 0 3px 10px;
+}
+.primary,
+.secondary,
+.ghost {
+  min-height: 40px;
+  padding: 0 15px;
+  border-radius: 9px;
+  font-weight: 700;
+  transition:
+    background 0.15s,
+    opacity 0.15s;
+}
+.primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.primary:hover:not(:disabled) {
+  background: var(--primary-hover, #c8cad1);
+}
+.primary.compact {
+  min-height: 40px;
+  padding-inline: 12px;
+}
+.secondary {
+  color: var(--text);
+  background: var(--control);
+  border: 1px solid rgba(var(--surface-rgb, 255, 255, 255), 0.12);
+}
+.ghost {
+  color: var(--muted);
+  background: transparent;
+}
+.icon-button {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 9px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  font-size: calc(18px * var(--device-font-scale, 1));
+  display: grid;
+  place-items: center;
+}
+.session-search,
+.command-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 39px;
+  padding: 0 10px;
+  margin: 0 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--faint);
+  background: var(--panel-2);
+}
+.session-search input,
+.command-search input {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  outline: 0;
+  color: var(--text);
+  background: transparent;
+  font-size: calc(12px * var(--device-font-scale, 1));
+}
+/* 左栏不要滚动条:内容照样能滚,只是不占视觉 */
+.session-search {
+  margin-top: 8px;
+}
+.session-list {
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+  padding: 0 3px 14px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.session-list::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+.workspace-group + .workspace-group {
+  margin-top: 14px;
+}
+.workspace-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px 6px;
+  color: var(--faint);
+  font-size: calc(10px * var(--device-font-scale, 1));
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+.workspace-count {
+  color: #52525b;
+}
+.session-item {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 9px minmax(0, 1fr);
+  gap: 10px;
+  text-align: left;
+  padding: 10px;
+  margin: 2px 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  touch-action: manipulation;
+}
+.session-item:hover {
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.05);
+}
+.session-item.active {
+  background: var(--control);
+  border-color: transparent;
+}
+/* 颜色按会话状态定在文件末尾那一组规则里,这里只管尺寸和形状 —— 同一个类在两处
+   各给一套颜色,改的人永远不知道自己改的那套是不是生效的那套。 */
+.status-dot {
+  width: 7px;
+  height: 7px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--faint);
+}
+.session-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: calc(13px * var(--device-font-scale, 1));
+  font-weight: 550;
+}
+.session-meta {
+  display: flex;
+  gap: 7px;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: calc(10px * var(--device-font-scale, 1));
+  white-space: nowrap;
+  overflow: hidden;
+}
+.session-meta span:first-child {
+  text-transform: uppercase;
+}
+.empty-list {
+  padding: 34px 14px;
+  color: var(--muted);
+  font-size: calc(13px * var(--device-font-scale, 1));
+  line-height: 1.6;
+  text-align: center;
+}
+.sidebar-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 8px 8px 0;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: calc(11px * var(--device-font-scale, 1));
+}
+.live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #52525b;
+}
+.live-dot.online {
+  background: var(--accent);
+}
+
+/* 主容器只裁切内容，避免聚焦导航按钮时被浏览器横向滚动；显式最小高度使内部列表与正文各自滚动。 */
+.main-panel {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+  overflow: clip;
+}
+
+/* ⚠️ 这里原来是整套网页终端视图的样式:.terminal-stage / .terminal-host 与 xterm
+   的各种覆盖、.empty-state、悬在画面上的 .connection-banner 与 .jump-latest,
+   以及整条底栏(.control-deck / .deck-rows / .shortcut-row / .agent-action /
+   .tool-panel / 字符键盘 / .composer)。2026-09-18 随终端视图一起删除 ——
+   终端归独立的原生 APP,网页只剩会话页。
+   连接状态显示在聊天流底部,输入区改成了
+   会话页自己的 .chat-input 卡片(也在下面)。 */
+.dialog-card {
+  width: min(440px, calc(100% - 28px));
+  max-height: min(90dvh, 760px);
+  overflow: auto;
+  padding: 23px;
+  border: 1px solid rgba(var(--surface-rgb, 255, 255, 255), 0.13);
+  border-radius: 15px;
+  background: var(--auth-bg, #111);
+  color: var(--text);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.7);
+}
+.dialog-card::backdrop {
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(4px);
+}
+.dialog-card h2 {
+  margin: 6px 0 9px;
+  font-size: calc(20px * var(--device-font-scale, 1));
+}
+.dialog-card p {
+  margin: 0 0 18px;
+  color: var(--muted);
+  font-size: calc(12px * var(--device-font-scale, 1));
+  line-height: 1.55;
+}
+.dialog-kicker {
+  color: var(--accent);
+  font:
+    800 calc(9px * var(--device-font-scale, 1)) ui-monospace,
+    monospace;
+  letter-spacing: 0.13em;
+}
+.dialog-card label {
+  display: grid;
+  gap: 6px;
+  margin: 13px 0;
+  color: var(--auth-label, #d4d4d8);
+  font-size: calc(11px * var(--device-font-scale, 1));
+  font-weight: 650;
+}
+.dialog-card input:not([type='radio']):not([type='checkbox']):not([type='range']),
+.dialog-card select,
+.dialog-card textarea {
+  width: 100%;
+  min-height: 43px;
+  padding: 0 11px;
+  color: var(--text);
+  background: var(--auth-input, #080808);
+  border: 1px solid rgba(var(--surface-rgb, 255, 255, 255), 0.13);
+  border-radius: 9px;
+}
+.dialog-card textarea {
+  padding-block: 10px;
+  resize: vertical;
+  line-height: 1.4;
+}
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+  margin-top: 19px;
+}
+.dialog-actions.split {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+}
+.form-error {
+  min-height: 17px;
+  color: var(--danger);
+  font-size: calc(11px * var(--device-font-scale, 1));
+}
+.provider-picker {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+  margin: 15px 0;
+}
+.provider-picker label {
+  margin: 0;
+}
+.provider-picker input {
+  position: absolute;
+  opacity: 0;
+}
+.provider-picker span {
+  display: grid;
+  min-height: 58px;
+  place-content: center;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel-2);
+  text-align: center;
+}
+.provider-picker input:checked + span {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: var(--selection, var(--control));
+}
+.provider-picker small {
+  margin-top: 3px;
+  color: var(--faint);
+  font-size: calc(8px * var(--device-font-scale, 1));
+}
+.recent-cwds {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+}
+.recent-cwds button {
+  flex: none;
+  max-width: 210px;
+  min-height: 31px;
+  padding: 0 9px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-radius: 7px;
+  color: var(--muted);
+  background: var(--control);
+  font:
+    calc(9px * var(--device-font-scale, 1)) ui-monospace,
+    monospace;
+}
+.confirm-card .primary.danger {
+  color: #25100e;
+  background: var(--danger);
+}
+.session-action-list {
+  display: grid;
+  gap: 5px;
+  margin-top: 12px;
+}
+.session-action-list button {
+  min-height: 42px;
+  padding: 0 11px;
+  border-radius: 8px;
+  text-align: left;
+  background: var(--panel-2);
+}
+.danger-text {
+  color: var(--danger) !important;
+}
+.toggle-label {
+  display: flex !important;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 9px !important;
+}
+.toggle-label input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+.settings-card output {
+  float: right;
+  color: var(--accent);
+}
+.settings-card input[type='range'] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+.settings-note {
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.session-action-list button[disabled] {
+  display: none;
+}
+/* 会话页的骨架:左栏常驻会话树,右侧是选中会话的内容。
+   窄屏上左栏退化成抽屉 —— 手机没有那么多横向空间给常驻栏。
+   ⚠️ position 要留着 relative:抽屉态的左栏与遮罩都是 absolute 的,靠它当定位基准。
+   (原来它是 absolute 覆在终端舞台上的一层,终端删掉之后它就是整块内容。) */
+.chat-view {
+  position: relative;
+  height: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  background: var(--bg);
+}
+.chat-sidebar {
+  display: none;
+  position: relative;
+  flex-direction: column;
+  min-height: 0;
+  padding: 8px 7px 0;
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+}
+/* 导航文字只用于选择会话和打开 Swift 菜单，搜索框继续使用系统文字编辑。 */
+.chat-sidebar {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.chat-sidebar input,
+.chat-sidebar textarea {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+.chat-sidebar-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 4px;
+}
+/* 拖动手柄:贴在左栏右沿,只有宽屏才出现(窄屏左栏是抽屉,拖它没有意义) */
+/* 拖动条是一块**完全看不见**的抓取区:不画线,平时、悬停、按住、拖动中一律无样式。
+   边界由侧栏自己的 1px 边框表示,再画一条就是多出来的线。
+   提示靠 col-resize 光标(桌面)和按下时的震动(手机),不需要任何视觉装饰。
+   ⚠️ touch-action:none 不能少,否则浏览器把横向拖动当成页面滚动/返回手势抢走。 */
+.chat-resizer {
+  display: block;
+  position: absolute;
+  top: 0;
+  right: -9px;
+  bottom: 0;
+  width: 19px;
+  z-index: 5;
+  cursor: col-resize;
+  touch-action: none;
+}
+.chat-tree-toggle {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-align: left;
+}
+.chat-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.chat-conversation {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+/* 用 flex 不用 grid:抽屉按钮在宽屏是 display:none,固定列数的 grid 会让
+   后面的元素整体前移一格,标题就被挤进 9px 那一列、看不见了。 */
+.chat-head {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+.chat-head .session-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  text-align: left;
+  border-radius: 4px;
+}
+.chat-head .session-name:focus-visible {
+  outline: 1px solid var(--focus-ring, var(--observe));
+  outline-offset: 2px;
+}
+.session-status-hint-content {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: calc(12px * var(--device-font-scale, 1));
+  line-height: 1.7;
+}
+.chat-head .chat-picker-kind {
+  flex: none;
+  min-width: 0;
+}
+.chat-head .status-dot {
+  flex: none;
+}
+.chat-head .session-name {
+  line-height: calc(20px * var(--device-font-scale, 1));
+}
+.chat-drawer-toggle {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  background: var(--control);
+  font-size: calc(13px * var(--device-font-scale, 1));
+}
+.chat-picker-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background: rgba(0, 0, 0, 0.55);
+}
+/* 左栏三件套照 dsh 量出来的尺寸:新会话整宽 38px 高、标题行右侧 16px 图标钮、
+   底部一格入口。配色仍用我们自己的令牌 —— 它那套是 #f9fafb/#151517,太刺眼。
+   手机上这三样都收起来:那边的左栏是抽屉,明确只改电脑。 */
+.chat-rail-title {
+  color: var(--muted);
+  font-size: calc(12.5px * var(--device-font-scale, 1));
+}
+.chat-sidebar.open {
+  display: flex;
+  position: absolute;
+  inset: 0 auto 0 0;
+  z-index: 4;
+  width: max(var(--chat-sidebar-min-w, 180px), var(--chat-sidebar-w, min(84%, 320px)));
+  box-shadow: 0 0 44px rgba(0, 0, 0, 0.6);
+}
+/* 左栏照 dsh 的侧边栏复刻:量出来的是 —— 工作区行文字 14px/400 且不大写,
+   会话行高 32px、圆角 8px、选中态是 rgba(var(--surface-rgb, 255,255,255),.08) 的半透明叠加,
+   工作区缩进 16px、会话再缩进到 40px。原来那套 10px 全大写加粗带圆点和数量
+   的分组标题跟它完全不是一路。 */
+.chat-tree-group {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin: 2px 0 0;
+  padding: 0;
+  color: var(--muted);
+  font-size: calc(14px * var(--device-font-scale, 1));
+  font-weight: 400;
+  line-height: calc(20px * var(--device-font-scale, 1));
+  letter-spacing: normal;
+  text-transform: none;
+}
+.chat-tree-toggle {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 8px;
+  color: var(--muted);
+  background: transparent;
+  font-size: calc(14px * var(--device-font-scale, 1));
+  font-weight: 400;
+  text-align: left;
+}
+.chat-tree-toggle:hover {
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.05);
+}
+.chat-tree-toggle .chat-tree-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-tree-icon {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  color: var(--folder-icon);
+}
+.chat-tree-icon.empty {
+  color: var(--faint);
+}
+.chat-group-add,
+.chat-group-add:hover {
+  color: var(--text);
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.08);
+}
+.chat-sidebar .session-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 8px 0 30px;
+  margin: 1px 0;
+  border: 0;
+  border-radius: 8px;
+}
+.chat-sidebar .session-item:hover {
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.05);
+}
+.chat-sidebar .session-item.active {
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.08);
+}
+.chat-sidebar .session-name {
+  font-size: calc(14px * var(--device-font-scale, 1));
+  font-weight: 400;
+  line-height: calc(20px * var(--device-font-scale, 1));
+}
+/* 状态点挪到名字左边、只在真的在跑或被挡住时才出现 —— dsh 的列表没有这一列,
+   但 herdr 的 agent 是活的,这个信息不能丢 */
+.chat-sidebar .status-dot {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0;
+}
+.status-dot.offline,
+.status-dot.none,
+.status-dot.shell {
+  background: var(--dot-seen, #999999);
+  box-shadow: none;
+}
+.chat-picker-kind {
+  color: var(--faint);
+  font-size: calc(12px * var(--device-font-scale, 1));
+  font-family: ui-monospace, monospace;
+}
+/* 选择器要盖过 .chat-sidebar .session-item 的三列规则 —— 那条更具体,
+   否则命中项的文字会被塞进 9px 的状态点列里挤成竖排。 */
+.chat-sidebar .session-item.chat-hit {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+.chat-hit-text {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.chat-hit-where {
+  color: var(--faint);
+  font-size: calc(10px * var(--device-font-scale, 1));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chat-tree-group {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.chat-group-add,
+.chat-group-add:hover {
+  color: var(--text);
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.08);
+}
+.chat-sidebar .session-item {
+  position: relative;
+}
+.chat-hit-excerpt {
+  color: var(--muted);
+  font-size: calc(11.5px * var(--device-font-scale, 1));
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* 宽屏:左栏常驻,抽屉与遮罩都退场 */
+@media (min-width: 761px) {
+  .chat-view {
+    grid-template-columns:
+      max(var(--chat-sidebar-min-w, 180px), var(--chat-sidebar-w, 320px))
+      minmax(0, 1fr);
+  }
+  .chat-resizer {
+    display: block;
+  }
+  /* ⚠️ position 要留着 relative:拖动条是 absolute 的,靠侧栏当定位基准。
+     改成 static 它会去找更上层的祖先,结果跑到视口右边画出一条线(实测量到 x=1439)。 */
+  .chat-sidebar {
+    display: flex;
+    position: relative;
+    width: auto;
+    box-shadow: none;
+  }
+  /* 宽屏下侧栏是常驻的一列,但也要能收起来 —— 收起后这个按钮是唯一的展开入口,
+     所以它在宽屏下必须留着(它在主区标题栏里,不会跟着侧栏一起消失)。 */
+  .chat-picker-scrim {
+    display: none;
+  }
+  /* ⚠️ 折叠要把列数也减掉,不能只写 `0 1fr`:display:none 的成员不参与 grid 布局,
+     .chat-main 会落进那条 0 宽的第一列,主区宽度直接变 0(踩过两次)。 */
+  .chat-view.sidebar-collapsed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .chat-view.sidebar-collapsed .chat-sidebar {
+    display: none;
+  }
+}
+/* 底部留 12px 就够:输入卡片现在是同一列里的下一块,不再是浮在气泡流之上的一层
+   (那时候要留 58~150px 才不被压住)。 */
+.chat-log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 28px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overscroll-behavior: contain;
+}
+/* agent 的内容直接落在背景板上 —— 不套气泡、不加边框、占满宽度;
+   只有自己发的消息才是气泡,颜色比背景板浅一档。
+   气泡靠右,宽度跟着内容走(`fit-content`):字从左往右写,气泡从右往左长,
+   多短的一句就多窄的一个气泡。**不能让它继承 .chat-msg 的 width: 100%** ——
+   那样「好」也会摊成一个占满上限的空壳。长句到上限自动换行。 */
+.chat-msg {
+  width: 100%;
+  max-width: 880px;
+  font-size: calc(13.5px * var(--device-font-scale, 1));
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.chat-msg[data-role='assistant'] {
+  align-self: stretch;
+  max-width: 100%;
+  padding: 2px 0;
+  background: none;
+  border: 0;
+  color: var(--text);
+}
+/* 圆角 22px、padding 10/16、14px/22px 都是从 dsh 的气泡上量来的。 */
+.chat-msg[data-role='user'] {
+  align-self: flex-end;
+  width: fit-content;
+  max-width: min(80%, 620px);
+  padding: 10px 16px;
+  border-radius: 22px;
+  font-size: calc(14px * var(--device-font-scale, 1));
+  line-height: calc(22px * var(--device-font-scale, 1));
+}
+.chat-msg[data-role='user'] {
+  color: var(--text);
+  background: var(--panel-2);
+}
+/* markdown 排版:标题层级靠字号和字重拉开,不用额外的线和色块 */
+.chat-md {
+  white-space: normal;
+}
+.chat-md > :first-child {
+  margin-top: 0;
+}
+.chat-md > :last-child {
+  margin-bottom: 0;
+}
+.chat-md p {
+  margin: 0 0 10px;
+}
+.chat-md h1,
+.chat-md h2,
+.chat-md h3,
+.chat-md h4,
+.chat-md h5,
+.chat-md h6 {
+  margin: 16px 0 8px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+.chat-md h1 {
+  font-size: calc(18px * var(--device-font-scale, 1));
+}
+.chat-md h2 {
+  font-size: calc(16px * var(--device-font-scale, 1));
+}
+.chat-md h3 {
+  font-size: calc(14.5px * var(--device-font-scale, 1));
+}
+.chat-md h4,
+.chat-md h5,
+.chat-md h6 {
+  font-size: calc(13.5px * var(--device-font-scale, 1));
+  color: var(--muted);
+}
+.chat-md ul,
+.chat-md ol {
+  margin: 0 0 10px;
+  padding-left: 20px;
+}
+.chat-md li {
+  margin: 3px 0;
+}
+.chat-md code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.08);
+  font:
+    calc(12px * var(--device-font-scale, 1))/1.5 ui-monospace,
+    monospace;
+  overflow-wrap: anywhere;
+}
+.chat-md pre {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.35);
+  overflow-x: auto;
+}
+.chat-md pre code {
+  display: block;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.chat-md pre[data-wrap='off'] code {
+  white-space: pre;
+  overflow-wrap: normal;
+}
+.chat-diagram {
+  margin: 0 0 10px;
+  min-width: 0;
+  max-width: 100%;
+}
+.diagram-viewport {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  overscroll-behavior-x: contain;
+}
+.diagram-viewport img {
+  display: block;
+  max-width: none;
+  margin: 0 auto;
+}
+.diagram-viewport img.diagram-fit {
+  max-width: 100%;
+  height: auto;
+}
+.chat-diagram summary {
+  width: fit-content;
+  padding: 6px 0;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+}
+.diagram-error {
+  color: var(--muted);
+  white-space: normal;
+  font:
+    12px/1.5 system-ui,
+    sans-serif;
+  margin-bottom: 8px;
+}
+.diagram-error button {
+  margin-left: 8px;
+  color: var(--observe);
+  background: transparent;
+}
+.diagram-measure {
+  position: fixed;
+  left: -100000px;
+  top: 0;
+  width: 1200px;
+  visibility: hidden;
+  pointer-events: none;
+}
+.chat-md blockquote {
+  margin: 0 0 10px;
+  padding: 2px 0 2px 11px;
+  border-left: 2px solid var(--line);
+  color: var(--muted);
+}
+.chat-md hr {
+  margin: 14px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+.chat-md a {
+  color: var(--observe);
+}
+/* 宽表格自己横向滚,别把整页撑宽 */
+.chat-md table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  margin: 0 0 10px;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: calc(12.5px * var(--device-font-scale, 1));
+}
+.chat-md th,
+.chat-md td {
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  text-align: left;
+}
+.chat-md th {
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.05);
+  font-weight: 600;
+}
+
+/* 消息底下那一行:时间 + 复制。dsh 上自己那条靠右、agent 那条靠左,这里照做。 */
+.chat-meta {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  margin-top: -4px;
+  color: var(--faint);
+  font-size: calc(11px * var(--device-font-scale, 1));
+}
+.chat-meta[data-role='user'] {
+  align-self: flex-end;
+}
+.chat-meta[data-role='assistant'] {
+  align-self: flex-start;
+}
+.chat-meta-button {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 6px;
+  color: var(--faint);
+  background: transparent;
+}
+.chat-meta-button:hover {
+  color: var(--text);
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.08);
+}
+
+/* 自己的消息与上一条之间留白多一点,读起来才有「来回」的节奏 */
+.chat-msg[data-role='user'] {
+  margin-top: 6px;
+  margin-bottom: 6px;
+}
+.chat-block + .chat-block {
+  margin-top: 7px;
+}
+/* 工具摘要:比正文退后一档,扫一眼知道做了什么就够,不该抢戏 */
+.chat-tools {
+  display: grid;
+  gap: 2px;
+  color: var(--faint);
+  font-size: calc(12px * var(--device-font-scale, 1));
+  line-height: 1.6;
+}
+/* 一条工具调用一行。已完成的截成一行,正在跑的那条摊开 —— 与终端一致 */
+.chat-tool-row {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+}
+.chat-tools-mark {
+  flex: none;
+  color: var(--observe);
+  font-size: calc(11px * var(--device-font-scale, 1));
+}
+.chat-tool-name {
+  flex: none;
+  color: var(--muted);
+}
+.chat-tool-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, monospace;
+  font-size: calc(11.5px * var(--device-font-scale, 1));
+}
+.chat-tool-row.running {
+  color: var(--text);
+}
+.chat-tool-row.running .chat-tool-detail {
+  overflow: visible;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Codex 的命令行照搬它自己的终端：动词加粗，命令做语法高亮。
+   配色实测自 Codex 终端（2026-09-22），不另配一套 —— 另配就不是「Codex 的样子」了。
+   ⚠️ 这几条只作用在 .codex-tool 里：一家的配色不得渗到另一家的会话上。 */
+.codex-tool .chat-tool-name {
+  display: none;
+}
+.codex-tool .codex-verb {
+  color: var(--tool-summary);
+  font-weight: 500;
+}
+.codex-tool .codex-cmd {
+  color: var(--codex-cmd, #89b4fa);
+}
+.codex-tool .codex-ddash {
+  color: var(--codex-ddash, #94e2d5);
+}
+.codex-tool .codex-flag {
+  color: var(--codex-flag, #eba0ac);
+}
+.codex-tool .codex-str {
+  color: var(--codex-str, #a6e3a1);
+}
+/* 行首那颗点：绿成功、红失败 —— 终端上最先被看到的一眼。 */
+.codex-tool .codex-bullet {
+  font-weight: 700;
+  animation: none;
+}
+.codex-tool .codex-bullet.ok {
+  color: color-mix(in srgb, var(--codex-ok, #0dbc79) 55%, var(--tool-summary));
+}
+.codex-tool .codex-bullet.bad {
+  color: var(--codex-bad, #cd3131);
+}
+/* 🔑 收起时**只有一行**。Codex 的命令常常是几百字符的 `python3 -c '…'`，
+   原来这里写的是 `white-space: normal`，把公共件那条「一行省略」顶掉了 ——
+   一条命令铺开占四五行，一屏只剩得下两三条，列表就没法扫了。
+   命令全文、真正的输出和退出码都在展开里（renderers/codex.js 的 expand）。 */
+.codex-tool .chat-tool-detail {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.codex-tool.running .chat-tool-detail {
+  white-space: nowrap;
+  overflow: hidden;
+}
+/* 展开里先放能看懂的那几段，原文排在它后面。 */
+.codex-real {
+  margin-bottom: 4px;
+}
+.chat-tool-row.failed .chat-tools-mark {
+  color: var(--danger);
+}
+/* 气泡里的图片。三条约束缺一不可:
+   🔑 **卡片必须和图片同比例**,否则 `object-fit: contain` 会在圆角框里留出
+   两条背景色的边 —— 看上去就是「直角的图片装在圆角的框里,四边没贴上」。
+   所以高度上限不能直接写成 `max-height`(那会把卡片压成比图片更扁的框),
+   而要按比例换算回宽度,一起参与 `min()`。
+   🔑 高度上限**不能用视口高度单位**。会话 APP 是 WebView 壳,输入法弹出时
+   整个 WebView 被 resize,`dvh`/`svh` 全都跟着变小,图片就会随键盘一起缩 ——
+   图片多大和键盘没有关系。`vw` 不受软键盘影响,用它表达这个上限。 */
+.chat-image {
+  --chat-image-ratio: 1;
+  --chat-image-max-height: 120vw;
+  display: block;
+  position: relative;
+  width: min(180px, 35vw, calc(var(--chat-image-max-height) * var(--chat-image-ratio)));
+  aspect-ratio: var(--chat-image-ratio);
+  max-width: 100%;
+  padding: 0;
+  margin: 8px 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--control);
+  cursor: zoom-in;
+}
+.chat-image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+}
+.chat-image.loaded img {
+  opacity: 1;
+}
+.chat-image-notice {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  color: var(--muted);
+  font-size: calc(12px * var(--device-font-scale, 1));
+}
+.chat-image-notice[hidden] {
+  display: none;
+}
+.chat-image.failed {
+  cursor: pointer;
+}
+.chat-image-viewer {
+  width: 100vw;
+  max-width: 100vw;
+  height: 100dvh;
+  max-height: 100dvh;
+  margin: 0;
+  padding: 36px 12px;
+  border: 0;
+  background: rgba(15, 16, 19, 0.97);
+}
+.chat-image-viewer[open] {
+  display: grid;
+  place-items: center;
+}
+.chat-image-viewer img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100dvh - 72px);
+  object-fit: contain;
+}
+.chat-image-viewer > button {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--control);
+  color: var(--text);
+  font-size: calc(26px * var(--device-font-scale, 1));
+}
+.chat-image-viewer::backdrop {
+  background: #101114;
+}
+.chat-empty {
+  margin: auto;
+  color: var(--muted);
+  font-size: calc(12px * var(--device-font-scale, 1));
+  text-align: center;
+  line-height: 1.7;
+}
+/* `?view=chat`(会话版 APP 的 WebView 装的就是它)此刻与浏览器里的 `/` 完全一样,
+   所以这里没有任何覆盖 —— 网页只剩会话页之后,「只渲染聊天」不再是一种特殊模式。
+   `body.embedded-chat` 这个钩子留着:APP 传 `?view=chat` 是有意的,将来真要给
+   WebView 单独调点什么(安全区、宿主自己的返回手势)就落在这里,
+   现在它一个字都不改,免得读到这个查询参数的人以为漏了什么。 */
+/* 结构化正文仅保留归档和连接说明。 */
+.chat-status {
+  margin: 8px 0 0;
+}
+.chat-archived-notice {
+  margin-bottom: 7px;
+  color: var(--muted);
+  font:
+    calc(12px * var(--device-font-scale, 1))/1.7 ui-monospace,
+    monospace;
+}
+.chat-archived-notice strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.chat-inline-question {
+  margin-bottom: 7px;
+  color: var(--muted);
+  font:
+    calc(12px * var(--device-font-scale, 1))/1.7 ui-monospace,
+    monospace;
+}
+.chat-inline-question-head {
+  color: var(--text);
+}
+.chat-inline-question-title {
+  margin: 2px 0 4px;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.chat-inline-question-note {
+  margin: 0 0 4px;
+  color: var(--faint);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* 选项是一行行的文字，不是按钮。左边留出记号位，选中时才填上，
+   这样未选中和选中的行不会左右错位。 */
+.chat-inline-option {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  width: 100%;
+  padding: 2px 6px 2px 2px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+}
+.chat-inline-option:hover:not(:disabled) {
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.07);
+  color: var(--text);
+}
+.chat-inline-option[aria-pressed='true'] {
+  color: var(--text);
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.1);
+}
+.chat-inline-option:disabled {
+  color: var(--faint);
+}
+.chat-inline-option-mark {
+  flex: none;
+  width: 1.1em;
+}
+.chat-inline-option-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.chat-inline-option-hint {
+  color: var(--faint);
+}
+/* 自填答案与提交：同样贴背景，不做成对话框里的表单。 */
+.chat-inline-question-text {
+  width: 100%;
+  margin-top: 4px;
+  min-height: 34px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--text);
+  background: var(--bg);
+  font: inherit;
+}
+.chat-inline-question-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+}
+.chat-inline-question-actions > button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--text);
+  background: var(--control);
+  font: inherit;
+}
+.chat-inline-question-actions > button:hover:not(:disabled) {
+  background: var(--button-hover, #34343a);
+}
+.chat-inline-question-actions > button:disabled {
+  color: var(--faint);
+}
+.chat-inline-question-error {
+  color: var(--danger);
+}
+
+/* 一轮的完成信号:终端上 recap 上面那行「用了多久、什么时候完的」。
+   它是背景信息,不画成气泡,也不占正文的分量。 */
+/* ⚠️ 选择器要带上 role:末尾那段里 `.chat-msg[data-role="assistant"]` 也给了
+   `padding-top: 12px`,和只写 `[data-kind]` 是同一个特异性,靠后的那条会赢,
+   这一行就被顶出 12px 的上边距、量起来正好是两行高。 */
+/* recap:终端上那段「这次做了什么、下一步是什么」,在流里要能一眼认出来 */
+.chat-msg[data-kind='recap'] {
+  border-left: 2px solid var(--observe);
+  padding-left: 11px;
+  color: var(--muted);
+}
+/* 供应商侧的错误不是 Agent 说的话。用左侧红条加一个小标签把它和回答分开，
+   不整段染红：正文本身要保持可读，用户还得从里面看出是什么错。 */
+.chat-msg[data-kind='error'] {
+  border-left: 2px solid var(--danger);
+  padding-left: 11px;
+  color: var(--muted);
+}
+.chat-error-mark {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--danger);
+  font-size: calc(11px * var(--device-font-scale, 1));
+  font-weight: 650;
+}
+/* 渲染器降级：来源未知，或数据版本高于这个渲染器支持的版本。
+   内容照常显示（宁可朴素也不要空白），但必须让人知道这不是完整适配 ——
+   静默降级会让人把"显示得简单"当成"内容就这么简单"。
+   用虚线下边框而不是色块：它是一条提示，不该比正文更抢眼。 */
+.chat-msg[data-degraded='true'] {
+  border-bottom: 1px dashed var(--line);
+}
+.chat-degraded-mark {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--muted);
+  font-size: calc(11px * var(--device-font-scale, 1));
+}
+.chat-recap-mark {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--observe);
+  font-size: calc(11px * var(--device-font-scale, 1));
+  font-weight: 650;
+}
+/* 一轮被中断：正文就停在最后几条命令上，不标出来看着像「跑着跑着没了」。 */
+.chat-aborted-mark {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--dot-blocked, #ff6b80);
+  font-size: calc(11px * var(--device-font-scale, 1));
+  font-weight: 650;
+}
+.chat-msg[data-kind='compacted'] .chat-block {
+  color: var(--muted);
+  font:
+    calc(12.5px * var(--device-font-scale, 1))/1.6 ui-monospace,
+    monospace;
+}
+.drawer-scrim {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  :root {
+    --sidebar: min(88vw, 340px);
+  }
+  .app-shell {
+    display: block;
+  }
+  .main-panel {
+    width: 100vw;
+    max-width: 100vw;
+  }
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: var(--sidebar);
+    padding-top: max(12px, env(safe-area-inset-top));
+    visibility: hidden;
+    transform: translateX(-102%);
+    transition: none;
+    box-shadow: none;
+  }
+  .app-shell.drawer-open .sidebar {
+    visibility: visible;
+    transform: translateX(0);
+    transition: transform 0.2s ease;
+    box-shadow: 16px 0 50px rgba(0, 0, 0, 0.56);
+  }
+  .sidebar-close,
+  .menu-button {
+    display: grid !important;
+  }
+  .drawer-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 15;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+  }
+  .app-shell.drawer-open .drawer-scrim {
+    display: block;
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .bottom-sheet {
+    width: 100%;
+    max-width: none;
+    max-height: 88dvh;
+    margin: auto 0 0;
+    border-radius: 17px 17px 0 0;
+    border-inline: 0;
+    border-bottom: 0;
+    padding-bottom: max(20px, env(safe-area-inset-bottom));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition: none !important;
+  }
+}
+
+/* ---- 聊天页的对话框与操作按钮 ----------------------------------------
+   配色一律用聊天页这套中性 token(--panel / --panel-2 / --line / --text),
+   不再用强调绿:那是状态色,给「正在跑」「在线」用的,按钮上一片绿会压过内容。
+   ⚠️ 这段在文件末尾,同特异性下后来者胜,别往中间挪。 */
+.chat-dialog {
+  width: min(440px, calc(100% - 28px));
+  max-height: min(86dvh, 720px);
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6);
+}
+.chat-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+}
+.chat-dialog-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: inherit;
+  padding: 18px;
+}
+.chat-dialog-title {
+  margin: 0;
+  font-size: calc(15px * var(--device-font-scale, 1));
+  font-weight: 650;
+}
+.chat-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-height: 0;
+  color: var(--muted);
+  font-size: calc(13px * var(--device-font-scale, 1));
+  line-height: 1.6;
+}
+.chat-dialog-textarea {
+  width: 100%;
+  min-height: 128px;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--text);
+  background: var(--bg);
+  font: inherit;
+  font-size: calc(13px * var(--device-font-scale, 1));
+  line-height: 1.6;
+  resize: vertical;
+}
+.chat-dialog-body input[type='text'],
+.chat-dialog-body select {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--text);
+  background: var(--bg);
+  font-size: calc(13px * var(--device-font-scale, 1));
+}
+.chat-dialog-body select {
+  min-height: 44px;
+}
+/* 新建会话里的项目下拉：与输入框同一套底色和边框。列表占版面、把下面的内容顶开，
+   不浮在上面 —— 浮层会越出对话框底边，被裁成要在对话框里滚着看。 */
+.chat-select-field {
+  position: relative;
+}
+.chat-select {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 32px 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--text);
+  background: var(--bg);
+  font-size: calc(13px * var(--device-font-scale, 1));
+  text-align: left;
+  position: relative;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-select::after {
+  content: '';
+  position: absolute;
+  right: 13px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: translateY(-70%) rotate(45deg);
+}
+.chat-select-list {
+  margin-top: 4px;
+  max-height: 240px;
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+}
+.chat-select-list[hidden] {
+  display: none;
+}
+.chat-select-list [role='option'] {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font-size: calc(13px * var(--device-font-scale, 1));
+  overflow-wrap: anywhere;
+}
+.chat-select-list [role='option']:hover,
+.chat-select-list [role='option'][aria-selected='true'] {
+  background: var(--control);
+}
+.chat-select-list .chat-select-new {
+  color: var(--muted);
+}
+.chat-select-field input[type='text'] {
+  margin-top: 8px;
+}
+.chat-dialog-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: calc(12px * var(--device-font-scale, 1));
+}
+.space-action-summary,
+.space-action-detail {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.space-action-summary {
+  color: var(--text);
+}
+.space-action-list {
+  list-style: none;
+  padding: 0;
+  margin: 4px 0 0;
+  overflow: auto;
+  max-height: 32dvh;
+  min-height: 0;
+  scrollbar-color: var(--line) transparent;
+}
+.space-action-item {
+  display: grid;
+  gap: 2px;
+  padding: 9px 0;
+  border-top: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.space-action-name {
+  color: var(--text);
+}
+.space-action-status {
+  font-size: calc(12px * var(--device-font-scale, 1));
+}
+.space-action-item[data-status='failed'] .space-action-status,
+.space-action-item[data-status='uncertain'] .space-action-status,
+.space-action-item[data-status='attention'] .space-action-status {
+  color: var(--danger);
+}
+.chat-dialog:has(.space-action-list) .chat-dialog-body {
+  overflow-y: auto;
+}
+.chat-dialog:has(.space-action-list) .chat-dialog-title {
+  overflow-wrap: anywhere;
+}
+.chat-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+}
+.chat-btn {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--text);
+  background: var(--control);
+  font-size: calc(12.5px * var(--device-font-scale, 1));
+}
+.chat-btn:hover:not(:disabled) {
+  background: var(--button-hover, #34343a);
+}
+.chat-btn:disabled {
+  color: var(--faint);
+}
+.chat-btn.primary {
+  background: var(--panel-2);
+  border-color: rgba(var(--surface-rgb, 255, 255, 255), 0.28);
+  font-weight: 650;
+}
+.chat-btn.danger {
+  color: var(--danger);
+}
+
+/* 目录选择:一次一层 + 面包屑,和 DeepSeek Harness 的 directory-picker 一致。
+   一次给整棵树在大目录下既慢又没人看得完。 */
+.chat-path {
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--muted);
+  font:
+    calc(11.5px * var(--device-font-scale, 1))/1.5 ui-monospace,
+    monospace;
+  overflow-wrap: anywhere;
+}
+.chat-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  align-items: center;
+}
+.chat-crumb {
+  padding: 3px 7px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  font-size: calc(11.5px * var(--device-font-scale, 1));
+}
+.chat-crumb:hover {
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.08);
+  color: var(--text);
+}
+.chat-crumb:last-child {
+  color: var(--text);
+}
+.chat-dir-list {
+  flex: 1;
+  min-height: 120px;
+  max-height: 38dvh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--bg);
+  scrollbar-width: none;
+}
+.chat-dir-list::-webkit-scrollbar {
+  display: none;
+  width: 0;
+}
+.chat-dir {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--text);
+  background: transparent;
+  font-size: calc(13px * var(--device-font-scale, 1));
+  text-align: left;
+}
+.chat-dir:hover {
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.08);
+}
+.chat-dir.hidden-entry {
+  color: var(--faint);
+}
+.chat-dir-icon {
+  flex: none;
+  color: var(--faint);
+  font-size: calc(11px * var(--device-font-scale, 1));
+}
+.chat-dir-empty {
+  padding: 16px 9px;
+  color: var(--faint);
+  font-size: calc(12px * var(--device-font-scale, 1));
+  text-align: center;
+}
+
+/* 侧栏里的新建入口。只在标题行悬停或聚焦时才显形,平时不占视觉 */
+.chat-group-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.chat-tree-group:hover .chat-group-actions,
+.chat-group-actions:focus-within {
+  opacity: 1;
+}
+.chat-icon-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  font-size: calc(14px * var(--device-font-scale, 1));
+  line-height: 1;
+}
+.chat-icon-btn:hover {
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.1);
+  color: var(--text);
+}
+
+/* 选中的是个还没有 agent 的终端标签页:把下一步摆出来,不给一片空白 */
+.chat-blank {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 9px;
+  margin: auto 0;
+  padding: 22px 2px;
+}
+.chat-blank-title {
+  margin: 0;
+  color: var(--text);
+  font-size: calc(14px * var(--device-font-scale, 1));
+  font-weight: 650;
+}
+.chat-blank-path {
+  margin: 0;
+  color: var(--muted);
+  font:
+    calc(11.5px * var(--device-font-scale, 1))/1.5 ui-monospace,
+    monospace;
+  overflow-wrap: anywhere;
+}
+.chat-blank-note {
+  margin: 0;
+  max-width: 46ch;
+  color: var(--faint);
+  font-size: calc(12.5px * var(--device-font-scale, 1));
+  line-height: 1.7;
+}
+.chat-blank-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 4px;
+}
+/* 侧栏里还没有 agent 的标签页:比会话退一档,一眼能分清点进去有没有内容 */
+.chat-sidebar .session-item.terminal-tab .session-name {
+  color: var(--muted);
+}
+.chat-sidebar .session-item.terminal-tab .chat-picker-kind {
+  color: var(--faint);
+}
+/* 还没有会话的工作区:显示一行说明,而不是一个空标题 */
+.chat-tree-empty {
+  padding: 5px 8px 7px 40px;
+  color: var(--faint);
+  font-size: calc(12px * var(--device-font-scale, 1));
+}
+
+/* 长按/右键菜单。与对话框共用同一个外壳,所以字号、圆角、配色天然一致 ——
+   原来这两处各有一套样式,凑在一起就不像一个软件。 */
+.chat-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0;
+}
+.chat-menu-item {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 9px;
+  color: var(--text);
+  background: transparent;
+  font-size: calc(13px * var(--device-font-scale, 1));
+  text-align: left;
+}
+.chat-menu-item:hover {
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.08);
+}
+.chat-menu-item:active {
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.12);
+}
+.chat-menu-item.danger {
+  color: var(--danger);
+}
+.chat-menu-item.danger:hover {
+  background: rgba(255, 154, 141, 0.12);
+}
+/* 目录选择:操作区域给大一点,一层层点下去才不憋屈 */
+.chat-dir-list {
+  min-height: 40dvh;
+  max-height: 52dvh;
+}
+.chat-dir {
+  min-height: 36px;
+}
+/* 当前路径挪到列表下方,作为「就选这里」的落点说明 */
+.chat-path {
+  order: 0;
+}
+
+/* 拖动条只是一块**看不见**的抓取区:19px 宽好按,但不画任何东西 ——
+   边界由侧栏自己的 1px 边框表示,再叠一条就是多出来的线。
+   ⚠️ 必须 touch-action:none,否则浏览器把横向拖动当成页面滚动/返回手势抢走。
+   桌面靠 col-resize 光标提示可拖,手机靠按下时那一下震动,都不需要常驻的视觉装饰。 */
+
+/* ---- 会话页自己的输入卡片 ------------------------------------------------
+   ⚠️ 这张卡片原来是**底栏拼出来的**:`#controlDeck` / `#deckRows` 在桌面档用
+   `display: contents` 把 .input-dock / .composer / .composer-field 三层摊平,
+   再靠 grid-area 把输入框、加号、快捷键、发送钮重排进一张网格。底栏随网页终端
+   一起删掉之后它必须是独立的一块 —— 会话页没有输入框就等于废了。
+   现在它直接就是那张网格,不再摊平任何中间层,手机与电脑同一套结构,
+   只有宽度按断点变。
+
+   尺寸照 dsh 那张量:圆角 22px、底色 #2c2c2e(=我们的 --control)、卡片
+   padding 8px 8px 6px、gap 12px、输入区 14px/24px 高 52。
+   🔑 它**没有 border**,那圈细线是 box-shadow 的 0.5px 扩散 —— 用 border 会粗一档。 */
+.chat-input {
+  flex: none;
+  display: grid;
+  /* 两行文字区域与附件、发送按钮同排。 */
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-areas: 'field attach send';
+  align-items: center;
+  gap: 12px;
+  width: calc(100% - 20px);
+  margin: 0 auto max(10px, env(safe-area-inset-bottom));
+  padding: 8px 8px 6px;
+  border-radius: 22px;
+  background: var(--control);
+  box-shadow:
+    rgba(var(--surface-rgb, 255, 255, 255), 0.12) 0 0 0 0.5px,
+    rgba(0, 0, 0, 0.28) 0 4px 16px,
+    rgba(0, 0, 0, 0.22) 0 0 24px;
+}
+/* 模型名称使用无边框按钮，悬停时显示底色。 */
+.chat-input-actions {
+  grid-area: keys;
+  display: flex;
+  gap: 4px;
+}
+.agent-action {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--muted);
+  background: transparent;
+  font-size: calc(12px * var(--device-font-scale, 1));
+}
+.agent-action:hover {
+  color: var(--text);
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.07);
+}
+@media (max-width: 420px) {
+  /* 手机上卡片窄,标签换成两个字才放得下一行 */
+  .agent-action {
+    padding: 0 7px;
+    font-size: calc(11.5px * var(--device-font-scale, 1));
+  }
+}
+.chat-input-field {
+  grid-area: field;
+  --composer-min-height: 56px;
+  display: block;
+  width: 100%;
+  height: var(--composer-min-height);
+  min-height: var(--composer-min-height);
+  max-height: calc(var(--composer-min-height) * 3);
+  /* 滚动条自己隐掉:卡片里冒出一条系统滚动条会把圆角那圈线切断 */
+  resize: none;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding: 4px 6px 0;
+  border: 0;
+  color: var(--text);
+  background: transparent;
+  font-size: calc(14px * var(--device-font-scale, 1));
+  line-height: calc(24px * var(--device-font-scale, 1));
+}
+.chat-input-field::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+/* placeholder 与工具行的字都用 --muted 而不是更淡的 --faint:实测 --faint 压在
+   卡片的 --control 底上只有 3.64:1,低于 AA 的 4.5 —— 卡片比页面底色浅一档,
+   照页面那套挑的颜色搬过来是不够的。 */
+.chat-input-field::placeholder {
+  color: var(--muted);
+}
+.chat-input-field:disabled {
+  color: var(--muted);
+}
+.chat-input-attach {
+  grid-area: attach;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: transparent;
+}
+.chat-input-attach:hover {
+  color: var(--text);
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.07);
+}
+.chat-input-state {
+  display: none;
+  grid-area: state;
+  justify-self: start;
+  color: var(--muted);
+  font-size: calc(11px * var(--device-font-scale, 1));
+}
+/* 发送做成圆钮:文字留给读屏软件,视觉上是一支箭头。 */
+.chat-input-send {
+  grid-area: send;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 999px;
+  color: #f2f7ff;
+  background: #3f6ea0;
+}
+.chat-input-send-area {
+  grid-area: send;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  margin-block: -8px;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.chat-input-send-area .chat-input-send:disabled {
+  pointer-events: none;
+}
+.chat-input-send:hover:not(:disabled) {
+  background: #4a7cb0;
+}
+.chat-input-send:disabled {
+  color: var(--muted);
+  background: var(--panel-2);
+}
+.chat-input .send-word {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+/* 连接提示与模型、活动状态同属聊天流底部，不单独绘制提示框。 */
+.chat-view {
+  position: relative;
+}
+.chat-connection {
+  position: absolute;
+  z-index: 15;
+  top: 56px;
+  right: 12px;
+  max-width: min(480px, calc(100% - 24px));
+  margin: 0;
+  padding: 6px 10px;
+  color: var(--muted);
+  background: var(--bg);
+  font-size: calc(12px * var(--device-font-scale, 1));
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+/* 宽屏上正文不铺满:两边各留 15%,中间 70% 放字。整行横跨一千多像素时眼睛要来回扫,
+   读起来累 —— 舒服的行长本来就有限,屏幕再宽也不该全用来放字。
+   窄屏保持原来的 28px:那里没有多余的宽度可让。
+   输入卡片与横幅跟着走同一个 70%,左右两边才和正文落在同一条线上。
+   ⚠️ 这一段必须留在文件末尾 —— 同特异性下后来者胜,挪到中间会被后面的规则无声顶掉。 */
+@media (min-width: 761px) {
+  .chat-log {
+    padding-inline: 15%;
+  }
+  .chat-input {
+    width: 70%;
+    margin-inline: auto;
+  }
+}
+
+/* 时间与复制那一行只在有鼠标的地方出现:手机上没有悬停,一排常驻的小钮只是噪音。
+   判据是「宽屏 **且** 有鼠标」—— 光看宽度会把 1024 的触摸平板也算成电脑。
+   ⚠️ 同样必须留在文件末尾。 */
+@media (min-width: 761px) and (hover: hover) and (pointer: fine) {
+  .chat-meta {
+    display: flex;
+  }
+}
+
+/* ── 从按钮向上弹出的列表 ──────────────────────────────────────────────
+   尺寸照 dsh 那几个弹层量:容器圆角 20px、padding 4px、底色 #353638(比卡片的
+   --control 再亮一档,叠在卡片上要分得出层);行圆角 10px、行高 40px、14px/22px,
+   带副标题的行 padding 8px 10px。那圈细线同样是 box-shadow 的 0.5px 扩散,不是 border。
+
+   🔑 它**向上**弹:锚点是输入卡片工具行上的钮,卡片本来就贴着页面底部,
+   向下弹会被视口切掉。放不下时才翻到下面(见 app.js 的 placePopover)。 */
+.popover {
+  position: fixed;
+  z-index: 40;
+  min-width: 200px;
+  max-width: 340px;
+  max-height: min(420px, 60vh);
+  overflow-y: auto;
+  padding: 4px;
+  border-radius: 20px;
+  background: #353638;
+  scrollbar-width: none;
+  box-shadow:
+    rgba(var(--surface-rgb, 255, 255, 255), 0.08) 0 0 0 0.5px,
+    rgba(0, 0, 0, 0.42) 0 3px 8px,
+    rgba(0, 0, 0, 0.34) 0 10px 28px;
+}
+.popover::-webkit-scrollbar {
+  display: none;
+  width: 0;
+}
+.popover-title {
+  padding: 6px 10px 4px;
+  color: var(--faint);
+  font-size: calc(11px * var(--device-font-scale, 1));
+}
+.popover-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+  color: var(--text);
+  background: transparent;
+  font-size: calc(14px * var(--device-font-scale, 1));
+  line-height: calc(22px * var(--device-font-scale, 1));
+  text-align: left;
+}
+/* ⚠️ hover 要用 `@media (hover: hover)` 圈起来。触摸屏上点过的那一项会**留着**
+   hover 状态,于是菜单里同时亮着两块:手指点过的一块,和真正选中的那一块。 */
+@media (hover: hover) {
+  .popover-item:hover {
+    background: rgba(var(--surface-rgb, 255, 255, 255), 0.08);
+  }
+}
+.popover-item[aria-current='true'] {
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.06);
+}
+.popover-item.has-sub {
+  min-height: auto;
+  padding: 8px 10px;
+  align-items: start;
+}
+.popover-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.popover-sub {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: calc(11.5px * var(--device-font-scale, 1));
+  line-height: calc(17px * var(--device-font-scale, 1));
+  white-space: normal;
+}
+.popover-aside {
+  flex: none;
+  color: var(--muted);
+  font-size: calc(11.5px * var(--device-font-scale, 1));
+}
+.popover-empty {
+  padding: 10px;
+  color: var(--muted);
+  font-size: calc(12.5px * var(--device-font-scale, 1));
+}
+
+/* 右键与长按的操作菜单。它**跟着指针出现**(见 app.js 的 openActionMenu):上下文菜单
+   说的是「对这一项做什么」,弹到屏幕正中会把这层关系切断 —— 操作的是哪一行,要靠回想。
+
+   外观完全走弹层这一套 —— 底色、圆角、投影、行高都不另起炉灶。一个软件里两套菜单
+   样式,凑在一起就不像一个软件。这里只多一样:危险动作的配色。
+
+   ⚠️ **不放表头。** 菜单就贴在右键的那一行上,再写一遍「这是谁」是重复。
+   ⚠️ 不要在这里改 .popover-item 的高度:手机那档靠它保证 44px 的触摸目标,
+   而这条选择器特异性更高,会把媒体查询里那份无声顶掉。 */
+.popover.context-menu {
+  min-width: 184px;
+}
+@media (min-width: 761px) and (hover: hover) and (pointer: fine) {
+  .popover.context-menu .popover-item {
+    min-height: 32px;
+    padding: 5px 10px;
+    font-size: calc(12.5px * var(--device-font-scale, 1));
+  }
+}
+.popover-item.danger {
+  color: var(--danger);
+}
+@media (hover: hover) {
+  .popover-item.danger:hover {
+    background: rgba(238, 146, 155, 0.12);
+  }
+}
+
+/* 会话界面的共同尺寸、层级与状态。网页和 Android WebView 使用同一份。 */
+:root {
+  --chat-default-content-width: calc(100% - clamp(48px, 10%, 160px));
+  --chat-content-width: var(--chat-default-content-width);
+  --terminal-default-content-width: 100%;
+  --chat-font-size: calc(14px * var(--device-font-scale, 1));
+  --chat-line-height: 1.85;
+  --line: rgba(var(--surface-rgb, 255, 255, 255), 0.09);
+}
+.chat-main {
+  position: relative;
+}
+.chat-sidebar {
+  background: var(--sidebar-bg, #1b1b1f);
+  padding: 8px 12px 16px;
+  border-right-color: var(--line);
+}
+.chat-sidebar-top {
+  padding: 0 8px;
+  margin-bottom: 6px;
+}
+.chat-tree-toggle {
+  min-height: 30px;
+  font-size: calc(13px * var(--device-font-scale, 1));
+}
+.chat-sidebar .session-item {
+  height: 30px;
+  padding-left: 30px;
+  border-radius: 10px;
+}
+.chat-sidebar .session-name {
+  font-size: calc(13px * var(--device-font-scale, 1));
+}
+.chat-sidebar .session-item.active {
+  background: var(--selection, #303038);
+}
+.chat-head {
+  min-height: 62px;
+  padding: 10px 24px;
+  gap: 12px;
+  border-bottom-color: transparent;
+}
+.chat-head .status-dot {
+  margin-top: 0;
+  box-shadow: none;
+}
+.chat-head .session-name {
+  font-size: calc(14px * var(--device-font-scale, 1));
+  font-weight: 500;
+}
+.chat-head .chat-picker-kind {
+  font: calc(11px * var(--device-font-scale, 1))/1.5 inherit;
+}
+.chat-head .chat-files-toggle {
+  margin-left: auto;
+}
+.chat-head .session-name {
+  min-width: 0;
+}
+/* Phones keep the session name on the left and the header actions on the right. */
+@media (max-width: 760px), (pointer: coarse) and (max-height: 600px) {
+  .chat-head:not(.has-native-tabs) > .session-name {
+    margin-right: auto;
+  }
+}
+.chat-drawer-toggle {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+}
+.chat-drawer-toggle:hover {
+  background: var(--panel-2);
+}
+.chat-log {
+  --chat-message-gap: 8px;
+  --chat-tool-gap: 2px;
+  gap: var(--chat-message-gap);
+  padding: 28px max(24px, calc((100% - var(--chat-content-width)) / 2)) 28px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar, #414149) transparent;
+}
+.chat-log > * {
+  flex-shrink: 0;
+}
+/* 正文分组：组内沿用同样的纵向间距；组上开 content-visibility，屏幕外的组整组跳过排版。
+   分组的理由与实测见 public/chat/container.js 的 CHUNK_SIZE。 */
+.chat-chunk {
+  display: flex;
+  flex-direction: column;
+  gap: var(--chat-message-gap);
+}
+.chat-chunk > * {
+  flex-shrink: 0;
+}
+#chatLog > .chat-chunk {
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 4000px;
+}
+/* Entry measures the latest window and its adjacent group before scrolling.
+   Estimated tail heights would leave the viewport above the real bottom. */
+#chatLog > .chat-chunk-latest {
+  content-visibility: visible;
+}
+.chat-msg {
+  font-size: var(--chat-font-size);
+  line-height: var(--chat-line-height);
+}
+.chat-msg[data-role='user'] {
+  max-width: 82%;
+  background: var(--bubble, #29292f);
+  margin-top: 22px;
+  margin-bottom: 0;
+  padding: 11px 17px;
+}
+.chat-msg[data-role='assistant'] {
+  padding-top: 12px;
+}
+.chat-meta {
+  display: flex;
+  min-height: 28px;
+  margin-top: 0;
+  gap: 9px;
+  margin-bottom: 8px;
+  font-size: calc(11px * var(--device-font-scale, 1));
+  color: var(--muted);
+}
+.chat-meta-button {
+  width: 28px;
+  height: 28px;
+  color: var(--muted);
+}
+.chat-md p {
+  margin-bottom: 14px;
+}
+.chat-md h1 {
+  font-size: calc(21px * var(--device-font-scale, 1));
+}
+.chat-md h2 {
+  font-size: calc(18px * var(--device-font-scale, 1));
+}
+.chat-md h3 {
+  font-size: calc(16px * var(--device-font-scale, 1));
+}
+.chat-md h1,
+.chat-md h2,
+.chat-md h3 {
+  margin-top: 24px;
+  margin-bottom: 12px;
+}
+.chat-md pre {
+  position: relative;
+  padding: 0;
+  overflow: hidden;
+  background: var(--code-bg, #202024);
+  border-color: var(--line);
+  border-radius: 12px;
+}
+.chat-md pre code {
+  max-width: 100%;
+  padding: 8px 16px 16px;
+  overflow-x: auto;
+  font-size: calc(12.5px * var(--device-font-scale, 1));
+  line-height: 1.8;
+}
+.code-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 6px 10px 0;
+  max-width: 100%;
+}
+.code-actions button {
+  min-height: 28px;
+  padding: 5px 8px;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 6px;
+  font-size: calc(11px * var(--device-font-scale, 1));
+  white-space: nowrap;
+}
+.code-actions button:hover {
+  background: var(--control);
+}
+.code-wrap {
+  min-width: 5em;
+}
+.code-actions .code-wrap[aria-pressed='true'] {
+  color: var(--observe);
+}
+.code-actions button:focus-visible {
+  outline: 1px solid var(--focus-ring, var(--observe));
+  outline-offset: -2px;
+}
+@media (pointer: coarse) {
+  .code-actions button {
+    min-height: 44px;
+  }
+}
+.chat-md th,
+.chat-md td {
+  padding: 9px 12px;
+}
+.chat-tools {
+  gap: var(--chat-tool-gap);
+  margin: 4px 0;
+  font-size: calc(12px * var(--device-font-scale, 1));
+  color: var(--muted);
+}
+/* Consecutive commands keep the same spacing across archive message/block
+   boundaries. Only tool segments omit the padding reserved for prose. */
+.chat-msg[data-role='assistant'][data-content='tools'] {
+  padding: 0;
+}
+.chat-msg[data-content='tools'] > .chat-tools {
+  margin: 0;
+}
+.chat-msg[data-content='tools'] > .chat-tools + .chat-tools {
+  margin-top: var(--chat-tool-gap);
+}
+.chat-msg[data-content='tools'] + .chat-msg[data-content='tools'] {
+  margin-top: calc(var(--chat-tool-gap) - var(--chat-message-gap));
+}
+.chat-chunk[data-ends-tools='true'] + .chat-chunk[data-starts-tools='true'] {
+  margin-top: calc(var(--chat-tool-gap) - var(--chat-message-gap));
+}
+.chat-tool-row {
+  display: block;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.chat-tool-row[open] {
+  background: var(--tool-surface, #1e1e23);
+  border-color: var(--line);
+}
+.chat-tool-row > summary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  min-height: 26px;
+  padding: 2px 6px;
+  cursor: pointer;
+  list-style: none;
+  color: var(--tool-summary);
+}
+.chat-tool-row > summary::-webkit-details-marker {
+  display: none;
+}
+.chat-tool-row > summary::after {
+  content: '›';
+  margin-left: auto;
+  flex: none;
+  font-size: calc(18px * var(--device-font-scale, 1));
+  line-height: calc(20px * var(--device-font-scale, 1));
+  color: var(--muted);
+  transform: rotate(0);
+  transition: transform 0.12s;
+}
+.chat-tool-row[open] > summary::after {
+  transform: rotate(90deg);
+}
+.chat-tool-row > summary:hover {
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.035);
+}
+.chat-tool-name {
+  font-size: calc(12px * var(--device-font-scale, 1));
+  font-weight: 500;
+}
+.chat-tool-row.running .chat-tool-detail {
+  overflow: hidden;
+  white-space: nowrap;
+}
+.chat-tool-detail {
+  font-size: calc(11.5px * var(--device-font-scale, 1));
+  color: var(--tool-summary);
+}
+.chat-tools-mark {
+  width: 14px;
+  text-align: center;
+  color: var(--tool-summary);
+}
+.tool-body {
+  border-top: 1px solid var(--line);
+  padding: 12px 14px;
+}
+.tool-body pre {
+  max-height: 360px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font:
+    calc(12px * var(--device-font-scale, 1))/1.75 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+  color: var(--text);
+  margin: 4px 0 14px;
+}
+.tool-body pre:last-child {
+  margin-bottom: 0;
+}
+.tool-body pre.tool-command {
+  color: var(--tool-summary);
+}
+.ansi-bold {
+  font-weight: 600;
+}
+.ansi-dim {
+  opacity: 0.7;
+}
+.chat-md pre code.hljs,
+.tool-code code.hljs {
+  color: var(--syn-text);
+}
+.tool-code code {
+  font: inherit;
+}
+.tool-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--muted);
+  font-size: calc(11px * var(--device-font-scale, 1));
+}
+.tool-section-head button,
+.tool-load {
+  background: transparent;
+  padding: 5px 8px;
+  color: var(--observe);
+  border-radius: 6px;
+  font-size: calc(11px * var(--device-font-scale, 1));
+}
+.tool-section-head button:hover,
+.tool-load:hover {
+  background: var(--control);
+}
+.chat-status {
+  margin-top: 12px;
+}
+.chat-empty {
+  max-width: 320px;
+  font-size: calc(15px * var(--device-font-scale, 1));
+  padding: 24px;
+  line-height: 2;
+}
+.chat-empty::before {
+  content: '';
+  display: block;
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 18px;
+  background: url('chat-icon.svg') center / contain no-repeat;
+}
+.chat-welcome {
+  align-self: stretch;
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 220px;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  text-align: left;
+}
+.chat-welcome-info {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+.chat-welcome-label {
+  margin: 0 0 6px;
+  color: var(--text);
+  font-size: calc(16px * var(--device-font-scale, 1));
+  line-height: 1.5;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+.chat-welcome-directory,
+.chat-welcome-permissions {
+  margin: 0;
+  color: var(--muted);
+  font-size: calc(12px * var(--device-font-scale, 1));
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.chat-welcome-directory {
+  font-family: 'Cascadia Mono', ui-monospace, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chat-welcome-center {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 32px 0;
+  text-align: center;
+}
+.chat-welcome-brand {
+  display: block;
+  width: clamp(88px, 12vw, 144px);
+  aspect-ratio: 1;
+  background: var(--muted);
+  opacity: 0.6;
+  mask: url('brand/codex.svg') center / contain no-repeat;
+  -webkit-mask: url('brand/codex.svg') center / contain no-repeat;
+}
+.chat-welcome-caption {
+  margin: 0;
+  color: var(--muted);
+  font-size: calc(13px * var(--device-font-scale, 1));
+  line-height: 1.7;
+}
+.chat-welcome [hidden] {
+  display: none;
+}
+.chat-welcome::before {
+  display: none;
+}
+.chat-input {
+  position: relative;
+  width: calc(100% - 48px);
+  max-width: var(--chat-content-width);
+  margin-bottom: max(24px, env(safe-area-inset-bottom));
+  padding: 8px 10px;
+  gap: 4px;
+  background: var(--bubble, #29292f);
+  box-shadow:
+    0 0 0 1px rgba(var(--surface-rgb, 255, 255, 255), 0.09),
+    0 6px 22px rgba(0, 0, 0, 0.12);
+}
+.chat-input-field {
+  padding: 4px 5px;
+  font-size: calc(14px * var(--device-font-scale, 1));
+  outline: none !important;
+}
+.chat-input-actions {
+  min-width: 0;
+  gap: 2px;
+}
+.agent-action {
+  min-width: 0;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  height: 28px;
+  padding: 0 6px;
+}
+.chat-input {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+.chat-input-attach {
+  width: 28px;
+  height: 28px;
+  border: 0;
+}
+.chat-input-send {
+  width: 34px;
+  height: 34px;
+  background: #5682b1;
+  align-self: center;
+  margin-top: 0;
+}
+.send-stop {
+  display: none;
+}
+.chat-input-send[data-mode='stop'] .send-arrow {
+  display: none;
+}
+.chat-input-send[data-mode='stop'] .send-stop {
+  display: block;
+}
+.popover {
+  min-width: 240px;
+  width: max-content;
+  max-width: min(360px, calc(100vw - 24px));
+  background: var(--popover-surface, #2d2d33);
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+}
+.popover-title {
+  padding: 9px 12px;
+  font-size: calc(11px * var(--device-font-scale, 1));
+  line-height: 1.6;
+  color: var(--muted);
+}
+.popover-item {
+  min-height: 44px;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: calc(13px * var(--device-font-scale, 1));
+}
+.popover-item[aria-current='true'] {
+  color: var(--observe);
+  background: rgba(158, 203, 255, 0.08);
+}
+.popover-item:focus-visible {
+  outline: none;
+  background: rgba(158, 203, 255, 0.12);
+  color: var(--observe);
+}
+.popover-label {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 760px) {
+  .chat-head {
+    min-height: 56px;
+    padding: 8px 12px;
+    gap: 8px;
+  }
+  .chat-head .session-name {
+    flex: 0 1 auto;
+  }
+  .chat-head .chat-picker-kind {
+    display: none;
+  }
+  .chat-log {
+    padding: 12px 18px 20px;
+  }
+  .chat-msg {
+    font-size: calc(14px * var(--device-font-scale, 1));
+  }
+  .chat-msg[data-role='user'] {
+    max-width: 90%;
+  }
+  .chat-meta-button {
+    width: 34px;
+    height: 34px;
+  }
+  .chat-input {
+    width: calc(100% - 24px);
+    margin-bottom: max(12px, env(safe-area-inset-bottom));
+    padding: 7px 9px;
+    gap: 4px;
+    border-radius: 20px;
+  }
+  .agent-action {
+    max-width: 100%;
+    height: 28px;
+    font-size: calc(11px * var(--device-font-scale, 1));
+    padding: 0 6px;
+  }
+  .agent-action[data-action='model'] {
+    flex: 0 1 auto;
+    text-align: left;
+  }
+  .chat-input-actions {
+    flex: 1;
+  }
+  .chat-input-send {
+    width: 34px;
+    height: 34px;
+  }
+  .chat-input-send-area {
+    margin-block: -7px;
+  }
+  .chat-input-attach {
+    width: 28px;
+    height: 28px;
+  }
+  .chat-input-state {
+    display: none;
+  }
+  .chat-sidebar .session-item {
+    height: 32px;
+  }
+  .chat-tree-toggle {
+    min-height: 32px;
+  }
+  .chat-icon-btn {
+    min-width: 36px;
+    min-height: 36px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.agent-startup {
+  flex: none;
+  width: calc(100% - 48px);
+  max-width: var(--chat-content-width);
+  margin: 8px auto;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font-size: calc(12px * var(--device-font-scale, 1));
+}
+.agent-startup p {
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+.agent-startup button {
+  margin-right: 8px;
+}
+
+.tool-pending {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: calc(12px * var(--device-font-scale, 1));
+}
+
+.slash-commands {
+  position: absolute;
+  z-index: 8;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 8px);
+  max-height: min(320px, 40dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 5px;
+  background: var(--panel-2);
+  box-shadow: 0 5px 20px #0004;
+}
+.slash-commands[hidden] {
+  display: none;
+}
+.slash-caption {
+  padding: 6px 9px;
+  color: var(--muted);
+  font-size: calc(11px * var(--device-font-scale, 1));
+}
+.slash-option {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-height: 36px;
+  padding: 7px 9px;
+  text-align: left;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+}
+.slash-option[aria-selected='true'] {
+  background: var(--control);
+}
+.slash-name {
+  flex: none;
+  font:
+    calc(12px * var(--device-font-scale, 1))/20px ui-monospace,
+    monospace;
+}
+.slash-description {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font-size: calc(12px * var(--device-font-scale, 1));
+}
+
+/* Keep the sidebar compact while giving names a readable type size. */
+.sidebar-modes {
+  min-width: 0;
+  overflow-x: hidden;
+  touch-action: pan-y;
+  scrollbar-width: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.sidebar-modes::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+.sidebar-modes button {
+  display: flex;
+  align-items: center;
+  flex: none;
+  white-space: nowrap;
+  height: var(--navigation-tab-height);
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--navigation-tab-radius);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: calc(13px * var(--device-font-scale, 1));
+}
+.sidebar-modes button[aria-selected='true'] {
+  color: var(--text);
+  background: var(--navigation-tab-background);
+  font-weight: 600;
+}
+@media (hover: hover) {
+  .sidebar-modes button:hover {
+    color: var(--text);
+    background: var(--navigation-tab-background);
+  }
+}
+.chat-tree-toggle {
+  font-size: calc(15px * var(--device-font-scale, 1));
+}
+.chat-sidebar .session-name {
+  font-size: calc(13px * var(--device-font-scale, 1));
+  line-height: calc(20px * var(--device-font-scale, 1));
+}
+.chat-sidebar .session-item {
+  height: 34px;
+}
+.session-list[data-mode='recent'] .session-item {
+  padding-left: 22px;
+}
+.session-list[data-mode='recent'] .status-dot {
+  left: 8px;
+}
+
+.attachment-list {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: calc(100% - 48px);
+  max-width: var(--chat-content-width);
+  max-height: 112px;
+  overflow-y: auto;
+  margin: 0 auto 6px;
+}
+.attachment-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: var(--control);
+  color: var(--muted);
+  font-size: calc(12px * var(--device-font-scale, 1));
+}
+.attachment-chip > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.attachment-chip button {
+  flex: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 2px 5px;
+}
+
+.popover-back {
+  display: block;
+  color: var(--muted);
+  background: transparent;
+  padding: 8px 10px;
+  font-size: calc(12px * var(--device-font-scale, 1));
+}
+
+/* Activity colors are identical in the header and sidebar. */
+/* 会话状态点只有四种，说的是「它要不要我」：
+     忙 → 黄；不忙但最后那些消息我还没看 → 蓝；有提问在等我回答 → 浅红；都看过了 → 灰。
+   ⚠️ 「空闲」不单开一个颜色：空闲而消息都看过了，和结束而都看过了，对用户是同一件事。
+   ⚠️ 这一格不用绿：亮绿在深色底上刺眼，一列点里它会把眼睛先拽过去，而「有消息等你看」
+   并不比「在等你回答」更急。
+   色值用终端的标准亮色（实测自 Claude Code 的状态行，见 device-theme.js）——
+   Herdr 那套 Catppuccin 是柔和的粉彩，几颗 6px 的点摆在一列里分不开。
+   ⚠️ 忙的那颗曾经试过做成转动/呼吸的 ✽：字形墨迹在字框里偏上、对不齐旁边一列圆点，
+   折腾几轮后退回圆点（2026-09-22）。不要再往这里加动画。 */
+.status-dot.working {
+  background: var(--dot-working, #f5f543);
+  box-shadow: none;
+}
+.status-dot.blocked {
+  background: var(--dot-blocked, #ff6b80);
+  box-shadow: none;
+}
+.status-dot.done {
+  background: var(--dot-done, #3b8eea);
+  box-shadow: none;
+}
+/* 「都看过了」画成**空心灰圈**：实心灰点混在一列彩色实心点里不够分明，空心一眼就
+   看得出「这颗不一样」。用 inset 阴影画圈而不是 border —— border 会改变盒子尺寸，
+   那一行就和别的行对不齐了。
+   idle 只在没有选中会话或断线时出现，和「看过了」同一个样子。 */
+.status-dot.idle,
+.status-dot.seen {
+  background: none;
+  box-shadow: inset 0 0 0 1.5px var(--dot-seen, #999999);
+}
+.chat-head .status-dot.shell,
+.chat-sidebar .status-dot.shell {
+  width: 3px;
+  height: 3px;
+  background: var(--dot-seen, #999999);
+  box-shadow: none;
+}
+.chat-sidebar .status-dot.shell {
+  margin-top: -1.5px;
+  margin-left: 1.5px;
+}
+
+/* Preserve the chat layout until its first complete response is ready. */
+#chatLog[data-loading='true'] {
+  visibility: hidden;
+}
+#chatLog[data-loading='true'] #connectionBanner {
+  visibility: visible;
+}
+
+.chat-root-directory {
+  min-width: 0;
+  align-self: center;
+  color: var(--muted);
+  font-size: calc(11px * var(--device-font-scale, 1));
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+.chat-files-toggle,
+.session-files-head .chat-files-action {
+  display: none;
+}
+/* 返回按钮三档都要有：项目材料是三层导航，手机上虽然右滑也能退，
+   但那是看不见的手势 —— 多层之间必须有一个明摆着的退路。
+   收起面板那个按钮仍只给桌面：手机上面板是整页，右滑退出就是它的关闭方式。 */
+.session-files-head #chatFilesListBack:not([hidden]) {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+}
+.session-files-head #chatFilesListBack:hover {
+  color: var(--text);
+  background: var(--control);
+}
+.session-files-head #chatFilesListBack:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 1px;
+}
+.files-open .chat-conversation {
+  display: none;
+}
+.session-files-page {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  flex-direction: column;
+  position: relative;
+}
+.session-files-resizer {
+  display: none;
+}
+.session-files-page[hidden],
+.session-file-viewer[hidden],
+.session-files-list[hidden] {
+  display: none;
+}
+/* 与聊天页顶栏（.chat-head）同一套几何：62px 高、分割线透明 —— 两栏并排时底边对齐，也不多画一条线。 */
+.session-files-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  min-height: 62px;
+  box-sizing: border-box;
+  border-bottom: 1px solid transparent;
+}
+.session-files-head strong {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(14px * var(--device-font-scale, 1));
+  font-weight: 500;
+}
+.session-files-head button,
+#sessionFileClose,
+#sessionFileMore {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--control);
+  color: var(--text);
+}
+.session-files-list,
+.session-file-viewer,
+.project-view {
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  padding: 12px 18px 24px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar, #414149) transparent;
+}
+.project-view[hidden] {
+  display: none;
+}
+#projectView.html-document {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+  width: 100%;
+}
+#projectView.html-document[hidden] {
+  display: none;
+}
+.html-document-toolbar {
+  display: flex;
+  flex: none;
+  gap: 4px;
+  padding: 0 12px 8px;
+}
+.html-document-toolbar button {
+  min-height: 36px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+.html-document-toolbar button:hover,
+.html-document-toolbar button[aria-pressed='true'] {
+  background: var(--control);
+  color: var(--text);
+}
+.html-document-toolbar button:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+.html-document-frame {
+  display: block;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: white;
+  color-scheme: normal;
+}
+.html-document-source {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 18px 24px;
+}
+.html-document-frame[hidden],
+.html-document-source[hidden],
+.html-document-status[hidden] {
+  display: none;
+}
+.html-document-status {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 18px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.doc-read-error {
+  flex: none;
+  padding: 8px 18px;
+}
+@media (pointer: coarse) {
+  .html-document-toolbar button {
+    min-height: 44px;
+  }
+}
+
+/* 项目材料。面板底色就是页面底色，所以次要文字用 --muted：--faint 压在这上面
+   对比度不够（同一条约束在输入卡片上踩过）。 */
+.project-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: calc(13px * var(--device-font-scale, 1));
+}
+.project-section-head strong {
+  color: var(--text);
+  font-size: calc(14px * var(--device-font-scale, 1));
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.project-empty {
+  margin: 8px 0;
+  color: var(--muted);
+  font-size: calc(13px * var(--device-font-scale, 1));
+}
+.list-feedback {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  color: var(--muted);
+  font-size: calc(13px * var(--device-font-scale, 1));
+  overflow-wrap: anywhere;
+}
+.list-feedback > span {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+.list-feedback .chat-btn {
+  flex: 0 0 auto;
+  min-height: 44px;
+}
+.session-list .list-feedback {
+  padding: 12px;
+}
+.project-task,
+.project-entry {
+  width: 100%;
+  display: grid;
+  gap: 4px 12px;
+  text-align: left;
+  padding: 10px 4px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+}
+.project-task:hover,
+.project-entry:hover {
+  background: var(--control);
+}
+.project-task-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.project-task-line strong {
+  flex: 1;
+  min-width: 0;
+  font-size: calc(14px * var(--device-font-scale, 1));
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+/* 状态取值由各项目自己定义，只排版不配色 —— 给 active 挑个绿色就等于替别人定义语义。 */
+.project-task-state {
+  flex: none;
+  color: var(--muted);
+  font-size: calc(11px * var(--device-font-scale, 1));
+}
+.project-task-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: calc(11px * var(--device-font-scale, 1));
+}
+.project-task-meta > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.project-task-meta > time {
+  flex: none;
+}
+.project-entry {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+}
+.project-entry-name {
+  font-size: calc(13.5px * var(--device-font-scale, 1));
+  overflow-wrap: anywhere;
+}
+.project-entry[data-kind='directory'] .project-entry-name::after {
+  content: '/';
+  color: var(--muted);
+}
+.project-entry time {
+  color: var(--muted);
+  font-size: calc(11px * var(--device-font-scale, 1));
+}
+/* 文档与聊天是同一种阅读：正文字号、行高与聊天正文一致（.chat-msg），头部不画分割线（聊天页的标题栏也没有）。 */
+.project-doc-head {
+  display: grid;
+  gap: 3px;
+  margin: 0 0 18px;
+}
+.project-doc-body:not(.project-doc-plain) {
+  font-size: calc(14px * var(--device-font-scale, 1));
+  line-height: 1.85;
+}
+.project-doc-body > :first-child {
+  margin-top: 0;
+}
+.project-doc-head strong {
+  font-size: calc(14px * var(--device-font-scale, 1));
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.project-doc-head span {
+  color: var(--muted);
+  font-size: calc(11px * var(--device-font-scale, 1));
+  overflow-wrap: anywhere;
+}
+.project-doc-plain {
+  margin: 0;
+  font:
+    calc(12px * var(--device-font-scale, 1))/1.75 ui-monospace,
+    monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* 代码直接铺在页面上，不套框；行号在左、淡色，长行在手机上折行、续行对齐正文（public/files/code-view.js）。
+   颜色全部来自主题的 syn-*：深色是 One Dark，浅色是 GitHub Light，换主题即时生效。 */
+.code-view {
+  --code-size: calc(12.5px * var(--device-font-scale, 1));
+  --code-line: 1.7;
+  margin: 0 -4px;
+  font:
+    var(--code-size)/var(--code-line) ui-monospace,
+    'SF Mono',
+    'Cascadia Code',
+    Menlo,
+    Consolas,
+    monospace;
+  color: var(--syn-text);
+  tab-size: 4;
+  outline: none;
+}
+.code-chunk {
+  content-visibility: auto;
+  contain-intrinsic-size: auto calc(var(--code-rows) * var(--code-size) * var(--code-line));
+}
+.code-line {
+  display: flex;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  counter-increment: code-line;
+}
+.code-line > span {
+  flex: 1;
+  min-width: 0;
+}
+.code-line::before {
+  content: counter(code-line);
+  flex: none;
+  width: var(--code-gutter, 3ch);
+  margin-right: 14px;
+  color: var(--faint);
+  opacity: 0.7;
+  text-align: right;
+  user-select: none;
+  -webkit-user-select: none;
+}
+:is(.code-view, .chat-md pre, .tool-code) .hljs-comment,
+:is(.code-view, .chat-md pre, .tool-code) .hljs-quote {
+  color: var(--syn-comment);
+  font-style: italic;
+}
+:is(.code-view, .chat-md pre, .tool-code) .hljs-keyword,
+:is(.code-view, .chat-md pre, .tool-code) .hljs-selector-tag,
+:is(.code-view, .chat-md pre, .tool-code) .hljs-meta .hljs-keyword,
+:is(.code-view, .chat-md pre, .tool-code) .hljs-doctag {
+  color: var(--syn-keyword);
+}
+:is(.code-view, .chat-md pre, .tool-code) .hljs-string,
+:is(.code-view, .chat-md pre, .tool-code) .hljs-regexp,
+:is(.code-view, .chat-md pre, .tool-code) .hljs-addition,
+:is(.code-view, .chat-md pre, .tool-code) .hljs-meta .hljs-string,
+:is(.code-view, .chat-md pre, .tool-code) .hljs-char\.escape {
+  color: var(--syn-string);
+}
+:is(.code-view, .chat-md pre, .tool-code) .hljs-number,
+:is(.code-view, .chat-md pre, .tool-code) .hljs-literal,
+:is(.code-view, .chat-md pre, .tool-code) .hljs-attr,
+:is(.code-view, .chat-md pre, .tool-code) .hljs-attribute,
+:is(.code-view, .chat-md pre, .tool-code) .hljs-selector-attr,
+:is(.code-view, .chat-md pre, .tool-code) .hljs-selector-pseudo {
+  color: var(--syn-number);
+}
+:is(.code-view, .chat-md pre, .tool-code) .hljs-title,
+:is(.code-view, .chat-md pre, .tool-code) .hljs-title\.function,
+:is(.code-view, .chat-md pre, .tool-code) .hljs-title\.function\.invoke,
+:is(.code-view, .chat-md pre, .tool-code) .hljs-section {
+  color: var(--syn-function);
+}
+:is(.code-view, .chat-md pre, .tool-code) .hljs-title\.class,
+:is(.code-view, .chat-md pre, .tool-code) .hljs-title\.class\.inherited,
+:is(.code-view, .chat-md pre, .tool-code) .hljs-type,
+:is(.code-view, .chat-md pre, .tool-code) .hljs-built_in,
+:is(.code-view, .chat-md pre, .tool-code) .hljs-selector-class {
+  color: var(--syn-type);
+}
+:is(.code-view, .chat-md pre, .tool-code) .hljs-variable,
+:is(.code-view, .chat-md pre, .tool-code) .hljs-template-variable,
+:is(.code-view, .chat-md pre, .tool-code) .hljs-name,
+:is(.code-view, .chat-md pre, .tool-code) .hljs-selector-id,
+:is(.code-view, .chat-md pre, .tool-code) .hljs-property,
+:is(.code-view, .chat-md pre, .tool-code) .hljs-deletion {
+  color: var(--syn-variable);
+}
+:is(.code-view, .chat-md pre, .tool-code) .hljs-meta,
+:is(.code-view, .chat-md pre, .tool-code) .hljs-symbol,
+:is(.code-view, .chat-md pre, .tool-code) .hljs-bullet,
+:is(.code-view, .chat-md pre, .tool-code) .hljs-link,
+:is(.code-view, .chat-md pre, .tool-code) .hljs-operator,
+:is(.code-view, .chat-md pre, .tool-code) .hljs-subst,
+:is(.code-view, .chat-md pre, .tool-code) .hljs-template-tag {
+  color: var(--syn-meta);
+}
+:is(.code-view, .chat-md pre, .tool-code) .hljs-params {
+  color: var(--syn-text);
+}
+:is(.code-view, .chat-md pre, .tool-code) .hljs-emphasis {
+  font-style: italic;
+}
+:is(.code-view, .chat-md pre, .tool-code) .hljs-strong {
+  font-weight: 600;
+}
+:is(.code-view, .chat-md pre, .tool-code) .hljs-addition,
+:is(.code-view, .chat-md pre, .tool-code) .hljs-deletion {
+  display: inline;
+}
+/* 材料之间靠相对链接互相引用，它是面板内的一跳而不是一个可分享的地址。 */
+.md-local-link {
+  color: var(--observe);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.session-files-list > p,
+#sessionFileNotice {
+  font-size: calc(13px * var(--device-font-scale, 1));
+  color: var(--muted);
+}
+/* 会话文件（docs/PRODUCT_SPEC.md 2.4）：一个列表，上面一个搜索框（2026-09-24 去掉了「会话 / 搜索」两个标签）。
+   每条两行：标题 + 右端相对时间，下一行小字摘要。 */
+.doc-search {
+  flex: none;
+  width: calc(100% - 36px);
+  box-sizing: border-box;
+  margin: 12px 18px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-size: calc(13px * var(--device-font-scale, 1));
+}
+.doc-search[hidden] {
+  display: none;
+}
+.doc-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 12px;
+  text-align: left;
+  padding: 10px 4px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+}
+.doc-row:hover {
+  background: var(--control);
+}
+.doc-row strong {
+  min-width: 0;
+  font-size: calc(14px * var(--device-font-scale, 1));
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-row time {
+  color: var(--muted);
+  font-size: calc(11px * var(--device-font-scale, 1));
+  white-space: nowrap;
+  align-self: baseline;
+}
+.doc-row-summary {
+  grid-column: 1 / -1;
+  min-width: 0;
+  color: var(--muted);
+  font-size: calc(12px * var(--device-font-scale, 1));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-task-head {
+  flex-wrap: wrap;
+}
+.doc-task-actions {
+  display: flex;
+  gap: 12px;
+  flex-basis: 100%;
+}
+.doc-task-reset {
+  border: 0;
+  background: transparent;
+  color: var(--accent, var(--text));
+  font-size: calc(12px * var(--device-font-scale, 1));
+  padding: 0;
+}
+.doc-inline-image {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  margin: 8px 0;
+  cursor: zoom-in;
+}
+.doc-inline-image img {
+  display: block;
+  max-width: 100%;
+  max-height: 70vh;
+  height: auto;
+  border-radius: 8px;
+}
+.doc-inline-image img:not([src]) {
+  width: 160px;
+  height: 90px;
+  background: var(--control);
+}
+.doc-inline-image.failed {
+  cursor: default;
+  color: var(--muted);
+  font-size: calc(12px * var(--device-font-scale, 1));
+}
+.doc-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+.file-preview {
+  min-width: 0;
+}
+.file-preview-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+.file-preview-controls .chat-btn,
+.file-preview-status .chat-btn {
+  min-height: 36px;
+}
+.file-preview-controls [data-save-file] {
+  margin-inline-start: auto;
+}
+.file-preview-pagination {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: calc(13px * var(--device-font-scale, 1));
+  white-space: nowrap;
+}
+.file-preview-page {
+  box-sizing: border-box;
+  width: 60px;
+  min-height: 36px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  text-align: center;
+}
+.file-preview-page:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+.file-preview-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--muted);
+  font-size: calc(13px * var(--device-font-scale, 1));
+  overflow-wrap: anywhere;
+}
+.file-preview-status[hidden],
+.file-preview-body [hidden] {
+  display: none;
+}
+.file-preview-body {
+  min-width: 0;
+  max-width: 100%;
+  overflow: auto;
+}
+.file-preview-zoom {
+  max-height: 65vh;
+}
+.file-preview-zoom .doc-page {
+  width: 1600px;
+  max-width: none;
+}
+.file-preview-controls .chat-btn[aria-pressed='true'] {
+  background: var(--control);
+  color: var(--text);
+  outline: 1px solid var(--line);
+}
+.file-preview-text {
+  margin: 0;
+  font: inherit;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.doc-video {
+  display: block;
+  width: 100%;
+  max-height: 65vh;
+  background: #000;
+  border-radius: 8px;
+}
+.doc-audio {
+  display: block;
+  width: 100%;
+  margin-block: 24px;
+}
+.doc-page {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: #fff;
+}
+.file-preview .project-doc-head {
+  overflow-wrap: anywhere;
+}
+.doc-read-error {
+  flex-wrap: wrap;
+}
+.doc-pdf {
+  display: block;
+  width: 100%;
+  height: calc(100vh - 180px);
+  min-height: 360px;
+  border: 0;
+  border-radius: 8px;
+  background: #fff;
+}
+.session-file-item {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 12px;
+  padding: 12px 4px;
+  background: transparent;
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+}
+.session-file-item:hover {
+  background: var(--control);
+}
+.session-file-item strong {
+  font-size: calc(14px * var(--device-font-scale, 1));
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.session-file-item time {
+  font-size: calc(11px * var(--device-font-scale, 1));
+  color: var(--muted);
+  align-self: center;
+}
+.session-file-location {
+  grid-column: 1/-1;
+  font-size: calc(11px * var(--device-font-scale, 1));
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.session-file-path {
+  font-size: calc(12px * var(--device-font-scale, 1));
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  margin-top: 12px;
+}
+#sessionFileText {
+  margin: 14px 0;
+  font:
+    calc(12px * var(--device-font-scale, 1))/1.75 ui-monospace,
+    monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+#sessionFileImage {
+  max-width: 100%;
+  height: auto;
+  margin: 12px 0;
+}
+
+/* Agent questions remain in the conversation flow, including on short screens. */
+.agent-question {
+  margin: 10px 0 16px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--control);
+  color: var(--text);
+  font-size: calc(14px * var(--device-font-scale, 1));
+}
+.agent-question[hidden] {
+  display: none;
+}
+.question-heading {
+  color: var(--activity-blue, #8fc7ff);
+  font-size: calc(12px * var(--device-font-scale, 1));
+  margin-bottom: 10px;
+}
+.agent-question fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.agent-question legend {
+  padding: 0;
+  margin-bottom: 12px;
+  font-weight: 600;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.question-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.question-option:has(input:checked) {
+  background: rgba(143, 199, 255, 0.09);
+}
+.question-option input {
+  margin: 3px 0 0;
+  accent-color: var(--activity-blue, #8fc7ff);
+  flex: 0 0 auto;
+}
+.question-option span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.question-option strong {
+  display: block;
+  font-size: calc(14px * var(--device-font-scale, 1));
+  font-weight: 500;
+}
+.question-option span span {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: calc(12px * var(--device-font-scale, 1));
+}
+.agent-question textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 10px;
+  padding: 9px 10px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: inherit;
+  resize: vertical;
+  min-height: 62px;
+}
+.question-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 12px;
+}
+.question-actions span {
+  color: var(--muted);
+  font-size: calc(12px * var(--device-font-scale, 1));
+  overflow-wrap: anywhere;
+}
+.question-actions button {
+  flex-shrink: 0;
+}
+.question-review {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.question-dialog {
+  max-height: min(80dvh, 680px);
+  overflow-y: auto;
+  padding: 18px;
+}
+.question-dialog .agent-question {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.question-close {
+  display: block;
+  margin: -6px -4px 0 auto;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: calc(22px * var(--device-font-scale, 1));
+}
+.question-close:hover,
+.popover-back:focus-visible {
+  background: rgba(158, 203, 255, 0.12);
+  outline: none;
+}
+.agent-question input[data-answer-text] {
+  width: 100%;
+  margin-top: 10px;
+  padding: 9px 10px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.chat-session-providers > button {
+  flex: 1;
+}
+/* 一排按钮不必解释，两排就必须了：没有标签就分不清哪排是 Agent、哪排是运行方式。
+   ⚠️ 标签用 --muted 不用 --faint —— 后者压在对话框底色上只有 3.64:1，低于 AA。 */
+.chat-field {
+  display: grid;
+  gap: 6px;
+}
+.chat-field-label {
+  color: var(--muted);
+  font-size: calc(11.5px * var(--device-font-scale, 1));
+  line-height: 1.4;
+}
+.chat-field-hint {
+  color: var(--muted);
+  font-size: calc(11.5px * var(--device-font-scale, 1));
+  line-height: 1.5;
+}
+.chat-goal {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+  width: calc(100% - 48px);
+  max-width: var(--chat-content-width);
+  margin: 0 auto 7px;
+  min-width: 0;
+}
+.chat-goal-summary {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: var(--goal-summary-limit, calc(62.5vw - 12px));
+  padding: 4px 0 4px 14px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: calc(12px * var(--device-font-scale, 1));
+  line-height: calc(18px * var(--device-font-scale, 1));
+  text-align: left;
+}
+.chat-goal-prefix {
+  flex-shrink: 0;
+  color: var(--goal-prefix, #b8bac2);
+}
+.chat-goal-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.chat-goal-state {
+  flex: 0 0 auto;
+  margin: 0;
+  color: var(--muted);
+  font-size: calc(11px * var(--device-font-scale, 1));
+  line-height: calc(18px * var(--device-font-scale, 1));
+}
+.chat-goal-state[data-status='active'] {
+  color: var(--goal-color, #c5a0ed);
+}
+.chat-goal-state[data-status='complete'] {
+  color: var(--activity-green, #b8bac2);
+}
+.chat-goal-state[data-status='paused'],
+.chat-goal-state[data-status='budgetLimited'],
+.chat-goal-state[data-status='usageLimited'] {
+  color: var(--activity-yellow, #e8c47a);
+}
+.chat-goal-state[data-status='blocked'] {
+  color: var(--activity-red, #ee929b);
+}
+.chat-goal-detail {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-y: auto;
+  max-height: 55dvh;
+  color: var(--text);
+}
+.chat-workspace-picker {
+  min-width: 0;
+}
+.chat-workspace-select {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 46px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--control);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+}
+.chat-workspace-select:focus-visible {
+  outline: 1px solid var(--muted);
+  outline-offset: 2px;
+}
+.chat-workspace-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-workspace-chevron {
+  width: 6px;
+  height: 6px;
+  margin-right: 3px;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: rotate(45deg);
+}
+.chat-workspace-select[aria-expanded='true'] .chat-workspace-chevron {
+  transform: rotate(225deg);
+}
+.chat-workspace-list {
+  margin-top: 6px;
+  padding: 4px;
+  max-height: min(240px, 30dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+  scrollbar-width: thin;
+}
+.chat-workspace-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 7px 9px;
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+}
+.chat-workspace-option:hover,
+.chat-workspace-option.active {
+  background: var(--control);
+}
+.chat-workspace-option[data-create='true'] {
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+  border-radius: 6px 6px 0 0;
+  color: var(--muted);
+}
+.chat-workspace-mark {
+  flex: 0 0 16px;
+  text-align: center;
+  color: var(--accent);
+}
+.chat-workspace-option[data-create='true'] .chat-workspace-mark {
+  color: var(--muted);
+  font-size: calc(18px * var(--device-font-scale, 1));
+}
+.history-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 12px;
+  text-align: left;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text);
+}
+.history-item:hover {
+  background: var(--control);
+}
+.history-item .session-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(13px * var(--device-font-scale, 1));
+}
+.history-detail {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: calc(11px * var(--device-font-scale, 1));
+}
+.history-empty {
+  padding: 14px;
+  color: var(--muted);
+  font-size: calc(13px * var(--device-font-scale, 1));
+}
+
+.popover-search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 10px;
+  margin-bottom: 6px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--control);
+  color: var(--text);
+  font: inherit;
+}
+.popover-item[hidden] {
+  display: none;
+}
+
+/* Composer menus share the attachment chips' surface and compact spacing. */
+.slash-commands {
+  left: 10px;
+  right: auto;
+  bottom: calc(100% + 6px);
+  width: max-content;
+  min-width: 144px;
+  max-width: min(260px, calc(100vw - 48px));
+  max-height: min(210px, 30dvh);
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--control);
+  border-color: var(--line);
+  box-shadow: 0 4px 12px #0002;
+  scrollbar-width: thin;
+}
+.slash-option {
+  min-height: 32px;
+  padding: 5px 10px;
+  gap: 0;
+}
+.slash-name {
+  font-family: inherit;
+  font-size: calc(13px * var(--device-font-scale, 1));
+  line-height: calc(22px * var(--device-font-scale, 1));
+}
+.slash-option[aria-selected='true'] {
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.08);
+}
+.composer-popover {
+  position: absolute;
+  left: 10px;
+  top: auto;
+  bottom: calc(100% + 6px);
+  min-width: 144px;
+  max-width: min(260px, calc(100vw - 48px));
+  max-height: min(230px, calc(var(--visual-viewport-height, 100dvh) * 0.34));
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--control);
+  box-shadow: 0 4px 12px #0002;
+}
+.composer-popover .popover-item {
+  min-height: 32px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  font-size: calc(13px * var(--device-font-scale, 1));
+}
+.composer-popover .popover-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.composer-popover .popover-back {
+  min-height: 30px;
+  padding: 4px 10px;
+  font-size: calc(12px * var(--device-font-scale, 1));
+}
+.composer-popover .popover-search {
+  padding: 5px 8px;
+  margin: 0 0 3px;
+  font-size: calc(12px * var(--device-font-scale, 1));
+  border-radius: 8px;
+}
+.composer-popover .popover-empty {
+  max-width: 220px;
+  padding: 8px 10px;
+}
+
+@media (max-width: 760px) {
+  .chat-goal {
+    width: calc(100% - 24px);
+    gap: 7px;
+  }
+  .chat-goal-state {
+    flex-shrink: 1;
+    max-width: 46%;
+  }
+}
+
+@media (max-width: 760px) {
+}
+
+/* Secondary small text stays readable while remaining quieter than the message. */
+:root {
+  --chat-secondary: #9b9ba7;
+}
+.chat-tool-name,
+.chat-tool-detail,
+.chat-tool-row.running .chat-tool-detail,
+.tool-body,
+.tool-body pre,
+.tool-section-head,
+.chat-picker-kind,
+.chat-root-directory,
+.chat-blank-path,
+.chat-path,
+.chat-dir,
+.history-detail,
+.session-file-location,
+.session-file-path,
+.session-file-item time,
+.chat-meta,
+.chat-meta-button {
+  color: var(--chat-secondary);
+}
+
+.chat-math {
+  color: inherit;
+}
+.chat-math.display {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin: 12px 0;
+}
+.chat-math .katex-display {
+  margin: 0;
+  padding: 4px 0;
+  text-align: left;
+}
+.chat-math .katex {
+  font-size: 1.08em;
+}
+.chat-math.math-source {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chat-content-resizer,
+.chat-content-resizer:hover,
+.chat-content-resizer:focus-visible {
+  display: none;
+  position: fixed;
+  width: 12px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  background: transparent;
+  box-shadow: none;
+  z-index: 2;
+  cursor: col-resize;
+  touch-action: none;
+}
+.resizing-chat-content,
+.resizing-chat-content * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+@media (min-width: 761px) and (hover: hover) and (pointer: fine) {
+  .chat-content-resizer:not([hidden]) {
+    display: block;
+  }
+}
+
+/* Settings share the chat main region and keep their own content width. */
+.chat-device-settings {
+  flex: none;
+  margin-top: auto;
+  margin-bottom: env(safe-area-inset-bottom, 0px);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: 10px;
+  color: var(--muted);
+  background: transparent;
+  text-align: left;
+  font-size: calc(13px * var(--device-font-scale, 1));
+}
+.chat-device-settings:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+.device-settings-section h3 {
+  margin: 2px 0 6px;
+  font-size: calc(14px * var(--device-font-scale, 1));
+  font-weight: 500;
+}
+.device-settings-section > p {
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: calc(12px * var(--device-font-scale, 1));
+}
+.device-theme-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.device-theme-option {
+  position: relative;
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  cursor: pointer;
+}
+.device-theme-option input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.device-theme-preview {
+  position: relative;
+  display: block;
+  height: 76px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg);
+}
+.device-theme-preview i {
+  position: absolute;
+  display: block;
+  border-radius: 3px;
+}
+.theme-preview-sidebar {
+  inset: 0 auto 0 0;
+  width: 24%;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--line);
+  border-radius: 0 !important;
+}
+.theme-preview-text {
+  top: 18px;
+  left: 33%;
+  width: 42%;
+  height: 3px;
+  background: var(--text);
+  box-shadow: 0 8px 0 var(--muted);
+}
+.theme-preview-bubble {
+  top: 35px;
+  right: 10%;
+  width: 26%;
+  height: 10px;
+  background: var(--bubble);
+}
+.theme-preview-input {
+  bottom: 10px;
+  left: 33%;
+  right: 10%;
+  height: 12px;
+  background: var(--control);
+}
+.device-theme-caption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 22px;
+  font-size: calc(13px * var(--device-font-scale, 1));
+}
+.device-theme-caption::after {
+  content: '';
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--muted);
+  border-radius: 50%;
+}
+.device-theme-option input:checked ~ .device-theme-caption::after {
+  background: var(--observe);
+  border-color: var(--observe);
+  box-shadow: inset 0 0 0 3px var(--panel);
+}
+
+.device-settings-section + .device-settings-section {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.device-font-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.device-font-label h3 {
+  margin: 0;
+}
+.device-font-label output {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.device-font-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.device-font-controls input {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  margin: 0;
+  accent-color: var(--observe);
+}
+.device-font-controls button {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--observe);
+  min-height: 44px;
+  padding: 0 4px;
+}
+.device-root-controls {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.device-root-controls .chat-root-directory {
+  flex: 1;
+}
+.device-root-controls button {
+  flex: none;
+}
+
+.settings-open .chat-main > :not(#settingsPage):not(#chatContentResizer) {
+  display: none !important;
+}
+.settings-page {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  background: var(--bg);
+}
+.settings-page::-webkit-scrollbar {
+  display: none;
+}
+.settings-content {
+  width: calc(100% - 48px);
+  max-width: var(--settings-content-width, calc(100% - clamp(48px, 16%, 256px)));
+  margin: 0 auto;
+  padding: 28px 0 max(48px, env(safe-area-inset-bottom));
+  container: settings / inline-size;
+}
+.settings-layout {
+  min-width: 0;
+}
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+.settings-group h2 {
+  margin: 0 0 10px 16px;
+  color: var(--muted);
+  font-size: calc(12px * var(--device-font-scale, 1));
+  line-height: 1.5;
+  font-weight: 500;
+}
+.settings-row-list {
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--panel);
+}
+.settings-nav button {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-width: 0;
+  min-height: 72px;
+  padding: 15px 18px;
+  color: var(--text);
+  background: transparent;
+  text-align: left;
+  font-size: calc(14px * var(--device-font-scale, 1));
+}
+.settings-nav button + button {
+  border-top: 1px solid var(--line);
+}
+.settings-nav button svg {
+  flex: none;
+  color: var(--muted);
+}
+.settings-row-copy {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+.settings-row-title {
+  font-weight: 500;
+}
+.settings-row-description {
+  color: var(--muted);
+  font-size: calc(12px * var(--device-font-scale, 1));
+  line-height: 1.5;
+}
+.settings-row-value {
+  flex: none;
+  max-width: 30%;
+  color: var(--muted);
+  font-size: calc(12px * var(--device-font-scale, 1));
+  text-align: right;
+  white-space: nowrap;
+}
+.settings-row-chevron {
+  margin-left: 2px;
+}
+.settings-nav button:hover,
+.settings-nav button:active {
+  background: var(--control);
+}
+.settings-nav button:focus-visible {
+  outline: 2px solid var(--observe);
+  outline-offset: -3px;
+}
+.settings-font-preview,
+.settings-terminal-preview {
+  margin: 28px 0 0;
+  padding: 20px;
+  border-radius: 12px;
+  background: var(--panel);
+}
+.settings-font-preview p {
+  margin: 0;
+  line-height: 1.7;
+  font-size: calc(14px * var(--device-font-scale, 1));
+}
+.settings-font-preview .settings-preview-secondary {
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: calc(12px * var(--device-font-scale, 1));
+}
+.settings-terminal-preview {
+  font-family: 'Cascadia Mono', 'Swift Terminal CJK', ui-monospace, monospace;
+  font-size: calc(var(--settings-terminal-size, 14) * 1px * var(--device-font-scale, 1));
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+#settingsBody {
+  min-width: 0;
+}
+.settings-panel {
+  min-width: 0;
+  container: settings-detail / inline-size;
+}
+.settings-panel:focus-visible {
+  outline: 2px solid var(--observe);
+  outline-offset: 6px;
+  border-radius: 4px;
+}
+.settings-panel-head {
+  margin-bottom: 32px;
+}
+.settings-panel-head h2,
+.settings-section-title {
+  margin: 0 0 8px;
+  font-size: calc(20px * var(--device-font-scale, 1));
+  line-height: 1.4;
+  font-weight: 550;
+}
+.settings-panel-head p,
+.device-font-label p {
+  margin: 0;
+  color: var(--muted);
+  font-size: calc(12px * var(--device-font-scale, 1));
+  line-height: 1.6;
+}
+.device-font-label p {
+  margin-top: 6px;
+}
+.settings-page .device-font-label output {
+  flex: none;
+  min-width: 76px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--panel);
+  text-align: center;
+  font-size: calc(13px * var(--device-font-scale, 1));
+  color: var(--text);
+}
+.settings-page .device-font-controls {
+  margin-top: 12px;
+}
+/* 标题栏与会话文件面板的 .session-files-head 同一个样子：左上角返回，紧跟标题。 */
+.settings-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 62px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-bottom: 1px solid transparent;
+  background: var(--bg);
+}
+.settings-back {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 8px;
+  color: var(--muted);
+  background: transparent;
+}
+.settings-back:hover {
+  color: var(--text);
+  background: var(--control);
+}
+.settings-bar h1 {
+  margin: 0;
+  color: var(--text);
+  font-size: calc(14px * var(--device-font-scale, 1));
+  font-weight: 500;
+  outline: none;
+}
+.settings-page .device-settings-section {
+  min-width: 0;
+}
+.settings-page .device-settings-section > input {
+  display: block;
+}
+.settings-page .device-settings-section + .device-settings-section {
+  margin-top: 28px;
+  padding-top: 28px;
+}
+.settings-page .device-settings-section h3 {
+  font-size: calc(14px * var(--device-font-scale, 1));
+  font-weight: 500;
+}
+.settings-page .device-settings-section > p {
+  line-height: 1.6;
+}
+.settings-page input[type='text'] {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  background: var(--control);
+  font: inherit;
+  font-size: calc(14px * var(--device-font-scale, 1));
+}
+.settings-page .chat-btn {
+  min-height: 44px;
+}
+.settings-page .device-theme-options {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.settings-page .device-theme-option {
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.settings-page .device-theme-option:hover {
+  border-color: var(--muted);
+}
+.settings-page .device-theme-option:has(input:checked) {
+  border-color: var(--muted);
+  background: var(--panel);
+}
+.settings-page .device-theme-preview {
+  height: 80px;
+  border: 0;
+  border-radius: 6px;
+}
+.settings-page .device-theme-caption {
+  padding: 0 2px 2px;
+}
+.settings-page .device-theme-option input:focus-visible ~ .device-theme-preview {
+  outline: 2px solid var(--observe);
+  outline-offset: 3px;
+}
+.settings-page .device-root-controls {
+  flex-wrap: wrap;
+}
+#deviceRootStatus {
+  color: var(--muted);
+  font-size: calc(12px * var(--device-font-scale, 1));
+  overflow-wrap: anywhere;
+}
+.chat-device-settings[aria-current='page'] {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+/* 任务页的各段。留白比设置页紧一档：设置是偶尔来一次的配置，
+   任务页是工作时反复看的东西，行距过大反而要多滚。 */
+/* 恢复材料每块都带来源。来源用小字跟在正文下面，不做成可点的链接：
+   它指的是执行机器上的文件和行号，点了也打不开，做成链接是假承诺。 */
+/* 还占着资源的和等人对账的要一眼看见：其余记录是历史，这两种是待办。
+   用左边一道色条而不是整行染色——整行染色会把正文对比度也一起拖下去。 */
+
+/* 左栏里的任务行。和会话行同一套几何，靠状态点和右侧状态词区分，
+   不另造一种行高——两段并列时高度不一致最先被看出来。 */
+
+/* History uses the same row geometry as recent sessions. */
+.session-list[data-mode='history'] .history-item {
+  padding-left: 22px;
+  flex-direction: initial;
+}
+
+.settings-page .device-theme-options {
+  margin-top: 18px;
+}
+.settings-page .chat-root-directory {
+  margin-top: 10px;
+}
+
+@media (max-width: 760px) {
+  :root {
+    --chat-default-content-width: 100%;
+  }
+  .attachment-list {
+    width: calc(100% - 24px);
+  }
+  /* 手机上两边各留 24px（原来 12px，内容几乎贴边）。 */
+  .settings-content {
+    max-width: var(--settings-content-width, none);
+    padding-top: 20px;
+  }
+  .settings-page .device-theme-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@container settings (max-width: 360px) {
+  .settings-nav button {
+    padding-inline: 14px;
+    gap: 10px;
+  }
+}
+
+/* A mouse desktop keeps chat usable beside the session's existing file view. */
+@media (min-width: 761px) and (hover: hover) and (pointer: fine) {
+  .chat-files-toggle {
+    display: grid;
+    place-items: center;
+    flex: none;
+    margin-left: auto;
+    width: 36px;
+    height: 36px;
+    color: var(--muted);
+    background: transparent;
+  }
+  .chat-files-toggle[aria-expanded='true'] {
+    color: var(--text);
+    background: var(--control);
+  }
+  .files-open .chat-main {
+    flex-direction: row;
+  }
+  .files-open .chat-main > .chat-conversation {
+    display: flex !important;
+  }
+  .files-open .session-files-page {
+    flex: 0 0 var(--files-w, min(42%, 560px));
+    border-left: 1px solid var(--line);
+  }
+  .files-open .session-files-resizer {
+    display: block;
+    position: absolute;
+    top: 0;
+    left: -10px;
+    bottom: 0;
+    width: 19px;
+    z-index: 5;
+    cursor: col-resize;
+    touch-action: none;
+  }
+  .session-files-head {
+    padding: 10px 12px;
+    gap: 8px;
+  }
+  .session-files-head .chat-files-action:not([hidden]) {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    color: var(--muted);
+    background: transparent;
+  }
+  .chat-files-toggle:hover:not(:disabled),
+  .session-files-head .chat-files-action:hover {
+    color: var(--text);
+    background: var(--control);
+  }
+  .session-file-item {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .session-file-item time {
+    overflow-wrap: anywhere;
+  }
+}
+
+/* 顶部那个会话名也能右键（和左栏那一行同一套菜单）。有鼠标才换光标 —— 触摸屏没有
+   悬停，换了也看不见，而且那里的手势是长按不是右键。
+   ⚠️ 媒体查询一律放在文件末尾：同特异性下后来者胜，挪到中间会被后面的规则无声顶掉。 */
+@media (hover: hover) and (pointer: fine) {
+  .chat-head .session-name,
+  .chat-head .chat-picker-kind {
+    cursor: context-menu;
+  }
+}
+
+/* 三页之间的平移（2026-09-24 用户要求，先试效果）：主页是聊天页，左边是左栏页，右边是文件页。
+   进出这三页时左右平移；左栏、文件页里面换标签不动（那是在换标签，不是换页）。
+   开关状态的逻辑一行没改（仍是 .open / hidden / .files-open），这里只是把「瞬间显示或隐藏」
+   换成「一直渲染着、平移进出」：隐藏时停在屏幕外并 visibility: hidden，看不见也点不到。
+   电脑上左栏与文件面板都是并排的，不参与；系统要求减少动效时，上面那条全局规则把过渡关掉。 */
+@media (max-width: 760px) {
+  .chat-sidebar {
+    display: flex;
+    position: absolute;
+    inset: 0 auto 0 0;
+    z-index: 4;
+    width: max(var(--chat-sidebar-min-w, 180px), var(--chat-sidebar-w, min(84%, 320px)));
+    transform: translateX(-100%);
+    visibility: hidden;
+    box-shadow: none;
+    transition:
+      transform var(--motion-panel) var(--ease-spatial),
+      box-shadow var(--motion-panel),
+      visibility 0s linear var(--motion-panel);
+  }
+  .chat-sidebar.open {
+    transform: none;
+    visibility: visible;
+    box-shadow: 0 0 44px rgba(0, 0, 0, 0.6);
+    transition:
+      transform var(--motion-panel) var(--ease-spatial),
+      box-shadow var(--motion-panel);
+  }
+  .chat-picker-scrim,
+  .chat-picker-scrim[hidden] {
+    display: block !important;
+    opacity: 0;
+    visibility: hidden;
+    transition:
+      opacity var(--motion-panel),
+      visibility 0s linear var(--motion-panel);
+  }
+  .chat-picker-scrim:not([hidden]) {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity var(--motion-panel);
+  }
+}
+@media (max-width: 760px), (hover: none), (pointer: coarse) {
+  .session-files-page,
+  .session-files-page[hidden] {
+    display: flex !important;
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    background: var(--bg);
+    transform: translateX(100%);
+    visibility: hidden;
+    transition:
+      transform var(--motion-panel) var(--ease-spatial),
+      visibility 0s linear var(--motion-panel);
+  }
+  .files-open .session-files-page {
+    transform: none;
+    visibility: visible;
+    transition: transform var(--motion-panel) var(--ease-spatial);
+  }
+  /* 聊天页被推开一点再藏起来，回来时从左边滑回原位。 */
+  .chat-conversation {
+    transition: transform var(--motion-panel) var(--ease-spatial);
+  }
+  .files-open .chat-conversation {
+    display: flex;
+    transform: translateX(-30%);
+    visibility: hidden;
+    transition:
+      transform var(--motion-panel) var(--ease-spatial),
+      visibility 0s linear var(--motion-panel);
+  }
+}
+
+/* 左栏宽度手柄：触摸设备上只留右边缘最上面那一段（头像、用户名与「新会话」那一行的高度），
+   其余位置都不能拖 —— 手指在列表边上一滑就改了栏宽，是误触（2026-09-24 用户要求）。
+   电脑上用鼠标，整条边缘照旧可拖。 */
+@media (hover: none), (pointer: coarse) {
+  .chat-resizer {
+    bottom: auto;
+    height: 120px;
+  }
+}
+
+/* 会话文件面板最大化（2026-09-24 用户要求）：只在电脑上。标题栏右端一个图标按钮，和左上角
+   的返回同一套样子；最大化后面板占满原来聊天页的位置，再收起左栏整个窗口就是它。正文按聊天
+   正文同样的阅读宽度居中，宽屏上不拉成一长行。 */
+/* 最大化后聊天页连同它标题栏里的「会话列表」按钮都藏起来了，所以面板标题栏最左边补一个同样的
+   按钮，才收得起左栏；分栏时不显示，免得一屏两个。 */
+.session-files-head #chatFilesSidebarToggle {
+  display: none;
+}
+.files-restore-icon {
+  display: none;
+}
+.chat-view.files-max .files-max-icon {
+  display: none;
+}
+.chat-view.files-max .files-restore-icon {
+  display: block;
+}
+@media (min-width: 761px) and (hover: hover) and (pointer: fine) {
+  .session-files-head strong {
+    user-select: none;
+  }
+  .files-open.files-max .chat-main > .chat-conversation {
+    display: none !important;
+  }
+  .files-open.files-max .session-files-page {
+    flex: 1 1 auto;
+    border-left: 0;
+  }
+  .files-open.files-max .session-files-resizer {
+    display: none;
+  }
+  .files-open.files-max .session-files-head #chatFilesSidebarToggle {
+    display: grid;
+  }
+  .files-open:not(.files-max) .session-files-head #chatFilesSidebarToggle {
+    display: none !important;
+  }
+  /* 最大化时与聊天页同一种版式：滚动区占满整页、滚动条在页面最右边，正文靠两侧留白居中，
+     宽度就是聊天的阅读宽度 --chat-content-width，同一个把手拖动（app.js 的阅读列把手）。 */
+  .files-open.files-max
+    .session-files-page
+    > :not(.session-files-head):not(.session-files-resizer) {
+    width: min(calc(100% - 48px), var(--chat-content-width));
+    align-self: center;
+    box-sizing: border-box;
+  }
+  .files-open.files-max
+    .session-files-page
+    > :not(.session-files-head):not(.session-files-resizer):is(
+      .session-files-list,
+      .session-file-viewer,
+      .project-view
+    ) {
+    width: 100%;
+    padding: 28px max(24px, calc((100% - var(--chat-content-width)) / 2));
+  }
+}
+
+/* 文件页里的图片长按弹我们自己的菜单（保存、分享），不要系统那个图片菜单和选中高亮。 */
+#projectView img.doc-image,
+#projectView .doc-inline-image img {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 标签跟手（public/nav/tab-drag.js）：拖动时按钮自己的选中底色让开，由 .tab-glider 这一块
+   跟着手指从一个标签滑向另一个，宽度跟着渐变；按钮的字始终在它上面。 */
+.tab-gliding > button {
+  position: relative;
+  z-index: 1;
+}
+.tab-gliding > button[aria-selected='true'] {
+  background: transparent;
+}
+.tab-glider {
+  position: absolute;
+  z-index: 0;
+  border-radius: 7px;
+  background: var(--control);
+  pointer-events: none;
+}
+.sidebar-modes .tab-glider {
+  border-radius: var(--navigation-tab-radius);
+  background: var(--navigation-tab-background);
+}
+
+/* 手机上聊天页顶栏是 56px（.chat-head 的手机档），文件页与设置页的顶栏跟着它。放在末尾：基础规则在后面，
+   写在中间的媒体查询会被同特异性的基础规则顶掉。 */
+@media (max-width: 760px) {
+  .session-files-head,
+  .settings-bar {
+    min-height: 56px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+}
+
+/* 左栏的收起按钮（public/app.js 的 chatSidebarCollapse）：宽屏上左栏展开时它在左栏头部最右端，会话顶栏与
+   最大化文件页顶栏里的那个开关让开；左栏收起后反过来。手机上左栏是抽屉，仍由会话顶栏的按钮开合，这个不出现。 */
+.chat-sidebar-collapse {
+  display: none;
+}
+@media (min-width: 761px) {
+  .chat-sidebar-top {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+  .chat-sidebar-top .chat-sidebar-collapse {
+    display: grid;
+    width: 32px;
+    height: 32px;
+    margin: 0;
+    color: var(--muted);
+  }
+  .chat-sidebar-top .chat-sidebar-collapse:hover {
+    color: var(--text);
+  }
+  .chat-view.sidebar-collapsed .chat-sidebar-top .chat-sidebar-collapse {
+    display: none;
+  }
+  .chat-view:not(.sidebar-collapsed) .chat-head #chatDrawerToggle {
+    display: none;
+  }
+  .chat-view:not(.sidebar-collapsed) .session-files-head #chatFilesSidebarToggle {
+    display: none !important;
+  }
+}
+
+.machine-selector {
+  margin: 8px 12px;
+  max-width: calc(100% - 24px);
+  background: var(--bg-panel, transparent);
+  color: inherit;
+  border: 1px solid var(--border, #888);
+  border-radius: 6px;
+  padding: 6px;
+}
+.device-settings-section > label:has(input) {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0;
+}
+.device-settings-section > label > input {
+  max-width: 100%;
+  min-width: 0;
+  padding: 6px;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--border, #888);
+}
+
+/* Direct controls follow the existing settings content column. */
+.settings-page .device-settings-section > button {
+  display: block;
+  margin-bottom: 10px;
+}
+.settings-page .device-settings-section input[type='password'] {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  background: var(--control);
+  font: inherit;
+}
+
+.notification-preferences {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.notification-preferences label {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: calc(12px * var(--device-font-scale, 1));
+}
+.notification-preferences input[type='checkbox'] {
+  width: auto !important;
+  min-height: 0 !important;
+  accent-color: var(--text);
+}
+.notification-preferences select {
+  width: 100%;
+  min-height: 44px;
+  color: var(--text);
+  background: var(--control);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font: inherit;
+}
+
+/* Unknown/offline remain distinct from a ready Agent; unread text is independent. */
+.status-dot.unknown {
+  background: transparent;
+  border: 1px solid var(--muted);
+  box-shadow: none;
+}
+.status-dot.offline {
+  opacity: 0.5;
+  border: 1px dashed currentColor;
+}
+.status-dot[data-unread='true'] {
+  outline: 1px solid var(--dot-done, #3b8eea);
+  outline-offset: 2px;
+}
+
+/* Current Tab content retains the navigation and header geometry. */
+.herdr-pane-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.herdr-pane-stage > .chat-conversation {
+  width: 100%;
+  height: 100%;
+}
+.herdr-pane-stage > .chat-conversation[hidden] {
+  display: none;
+}
+
+.herdr-operation-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  flex-shrink: 0;
+  margin: 0;
+  padding: 8px 12px;
+  color: var(--text);
+  background: var(--panel-2);
+  font-size: 13px;
+}
+.herdr-notice-message {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.herdr-notice-close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  min-height: 28px;
+  margin: -4px -4px -4px 0;
+  padding: 0;
+  border-radius: 4px;
+  color: var(--muted);
+  background: transparent;
+}
+.herdr-notice-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+@media (hover: hover) {
+  .herdr-notice-close:hover {
+    color: var(--text);
+    background: var(--control);
+  }
+}
+@media (pointer: coarse) {
+  .herdr-operation-notice {
+    min-height: 44px;
+  }
+  .herdr-notice-close {
+    width: 44px;
+    min-height: 44px;
+    margin: -8px -8px -8px 0;
+  }
+}
+.herdr-inspection {
+  max-height: 60vh;
+  max-width: 100%;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.herdr-empty-space {
+  margin: 24px;
+  color: var(--muted);
+}
+.herdr-session-selector {
+  padding: 8px;
+  min-height: 36px;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12px;
+}
+@media (min-width: 761px) and (hover: hover) and (pointer: fine) {
+  .files-open .chat-main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--files-w, min(42%, 560px));
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .files-open .herdr-operation-notice {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .files-open .herdr-pane-stage {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .files-open:not(.files-max) .herdr-pane-stage > .chat-conversation:not([hidden]) {
+    display: flex;
+  }
+  .files-open .session-files-page {
+    grid-column: 2;
+    grid-row: 1 / 3;
+    min-width: 0;
+  }
+  .files-open.files-max .herdr-pane-stage,
+  .files-open.files-max .herdr-operation-notice {
+    display: none;
+  }
+  .files-open.files-max .chat-main {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .files-open.files-max .session-files-page {
+    grid-column: 1;
+    grid-row: 1;
+  }
+}
+
+/* Keep the original navigation geometry for Herdr content. */
+.chat-sidebar .chat-tree-toggle > .status-dot {
+  position: static;
+  width: 6px;
+  height: 6px;
+  margin: 0 0 0 auto;
+  flex-shrink: 0;
+}
+.chat-tree-group.linked-worktree {
+  padding-left: 24px;
+}
+
+.operation-error {
+  margin: 4px 0 8px;
+  color: var(--danger);
+  font-size: calc(11px * var(--device-font-scale, 1));
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+/* Native Codex question replies share the existing user bubble and font size. */
+.codex-question-reply {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  white-space: normal;
+}
+.codex-question-reply dt {
+  color: var(--muted);
+  font-size: calc(11px * var(--device-font-scale, 1));
+  line-height: 1.6;
+}
+.codex-question-reply dt:not(:first-child) {
+  margin-top: 10px;
+}
+.codex-question-reply dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.codex-reply-answer,
+.codex-reply-text {
+  white-space: pre-wrap;
+}
+.codex-question-reply + .codex-question-reply,
+.codex-question-reply + .codex-reply-text,
+.codex-reply-text + .codex-question-reply {
+  margin-top: 14px;
+}
+.codex-reply-question > :last-child {
+  margin-bottom: 0;
+}
+
+/* 原生命令只呈现菜单与结果，沿用原生状态的小字号，不承载完整终端。 */
+.native-command-panel {
+  display: flex;
+  flex-direction: column;
+  position: absolute;
+  inset: auto 10px calc(100% + 6px);
+  z-index: 35;
+  max-height: min(560px, calc(var(--visual-viewport-height, 100dvh) - 120px));
+  overflow: hidden;
+  padding: 10px 12px;
+  color: var(--text);
+  background: var(--popover-surface, #2d2d33);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.native-command-panel[hidden] {
+  display: none;
+}
+.native-command-head,
+.native-command-controls {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+  font-size: calc(11px * var(--device-font-scale, 1));
+}
+.native-command-head {
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.native-command-head button,
+.native-command-controls button {
+  padding: 5px 8px;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  font: inherit;
+}
+.native-command-body {
+  min-height: 0;
+  overflow: auto;
+  font-family: ui-monospace, monospace;
+  font-size: calc(12px * var(--device-font-scale, 1));
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.native-command-row {
+  display: block;
+  width: 100%;
+  min-height: 1.65em;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  white-space: pre-wrap;
+}
+.native-command-row.selected {
+  background: var(--control);
+}
+.native-command-row .dim {
+  opacity: 0.65;
+}
+.native-command-controls {
+  margin-top: 8px;
+}
+.native-command-error {
+  margin: 8px 0;
+  color: var(--danger);
+  font-size: calc(12px * var(--device-font-scale, 1));
+}
+
+/* Long press opens Swift resource actions while normal scrolling stays native. */
+.chat-image img,
+.chat-image-viewer img,
+#projectView .doc-image,
+#projectView .doc-inline-image img,
+[data-download-url] {
+  -webkit-touch-callout: none;
+}
+
+/* Command selection is local; only confirmation controls the native process. */
+.native-command-panel {
+  inset: auto auto calc(100% + 6px) 10px;
+  width: min(420px, calc(100% - 20px));
+  max-height: min(460px, calc(var(--visual-viewport-height, 100dvh) - 120px));
+  padding: 6px;
+  border: 0;
+  border-radius: 12px;
+  box-shadow: 0 8px 28px #0003;
+  background: var(--popover-surface, var(--panel-2));
+}
+.native-command-head {
+  padding: 3px 6px 5px;
+  margin: 0;
+}
+.native-command-body {
+  scrollbar-width: thin;
+  font-size: calc(12px * var(--device-font-scale, 1));
+}
+.native-command-panel[data-local='true'] .native-command-body {
+  font-family: inherit;
+}
+.native-command-head > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.command-choice {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1px 8px;
+  min-height: 40px;
+  padding: 7px 9px;
+  border-radius: 7px;
+  line-height: 1.45;
+}
+.command-choice-name {
+  grid-column: 1;
+  overflow-wrap: anywhere;
+}
+.command-choice-description {
+  grid-column: 1;
+  color: var(--muted);
+  font-size: calc(11px * var(--device-font-scale, 1));
+  white-space: normal;
+}
+.command-choice-current {
+  grid-column: 2;
+  grid-row: 1;
+  color: var(--muted);
+  font-size: calc(11px * var(--device-font-scale, 1));
+}
+.native-command-row:hover,
+.native-command-row:focus-visible {
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.06);
+}
+.native-command-row.selected {
+  background: rgba(var(--surface-rgb, 255, 255, 255), 0.12);
+}
+.native-command-row:focus-visible,
+.native-command-head button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.command-empty {
+  margin: 0;
+  padding: 12px 9px;
+  color: var(--muted);
+}
+.native-command-error {
+  padding-inline: 8px;
+}
+@media (pointer: coarse) {
+  .command-choice {
+    min-height: 44px;
+  }
+}
+
+/* Operation feedback shares the status hint row and typography. */
+#chatComposerError {
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  padding: 2px 2px 4px;
+  height: var(--chat-status-row-height);
+  color: var(--danger);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-sizing: border-box;
+}
+.chat-status-hint-row:has(#chatComposerError:not([hidden])) {
+  padding-left: 0;
+  visibility: visible;
+}
+.chat-status-hint-row:has(#chatComposerError:not([hidden]))
+  > :is(.chat-status-branch, .chat-status-hint) {
+  display: none;
+}
+
+/* Live Pane terminal surface; the surrounding navigation and file layout stay mounted. */
+.shell-terminal {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 10px
+    max(
+      24px,
+      calc((100% - var(--terminal-content-width, var(--terminal-default-content-width))) / 2)
+    )
+    16px;
+  overflow: hidden;
+}
+.shell-terminal-session {
+  display: contents;
+}
+.shell-terminal-canvas .xterm-screen {
+  touch-action: pinch-zoom;
+}
+.shell-pane #connectionBanner {
+  display: none;
+}
+.shell-terminal-canvas {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.shell-terminal .xterm {
+  height: 100%;
+}
+.shell-terminal .xterm-viewport {
+  background-color: var(--bg) !important;
+}
+.shell-terminal .xterm-viewport,
+.shell-terminal .xterm-scrollable-element {
+  scrollbar-width: none;
+}
+.shell-terminal .xterm-viewport::-webkit-scrollbar,
+.shell-terminal .xterm-scrollable-element::-webkit-scrollbar {
+  display: none;
+}
+.shell-terminal .xterm .xterm-scrollable-element > .scrollbar {
+  display: none !important;
+}
+.shell-terminal-keys,
+.shell-terminal-combos {
+  display: none;
+  flex: none;
+  min-width: 0;
+  gap: 4px;
+  padding-top: 6px;
+}
+.shell-terminal-deck {
+  display: none;
+  position: relative;
+  flex: none;
+  min-width: 0;
+}
+.shell-terminal-key-scroll,
+.shell-terminal-key-fixed {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+}
+.shell-terminal-key-scroll {
+  flex: 1;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: none;
+}
+.shell-terminal-key-fixed {
+  flex: none;
+}
+.shell-terminal-keys button,
+.shell-terminal-combos button {
+  display: grid;
+  place-items: center;
+  flex: none;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: var(--control);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.shell-terminal-combos {
+  position: absolute;
+  z-index: 12;
+  bottom: calc(100% + 4px);
+  inset-inline: 0;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+}
+.shell-terminal-combos[hidden] {
+  display: none;
+}
+.shell-terminal-combos button {
+  min-width: 44px;
+  padding-inline: 4px;
+  font-size: 11px;
+}
+.shell-terminal-keys button:disabled,
+.shell-terminal-combos button:disabled {
+  opacity: 0.5;
+}
+@media (pointer: coarse) {
+  .chat-input-field {
+    max-height: min(
+      calc(var(--composer-min-height) * 3),
+      max(var(--composer-min-height), calc(var(--visual-viewport-height, 100dvh) * 0.25))
+    );
+  }
+}
+.shell-terminal-keys button:focus-visible,
+.shell-terminal-combos button:focus-visible {
+  outline: 1px solid var(--focus-ring, var(--observe));
+  outline-offset: -2px;
+}
+@media (pointer: coarse) {
+  .shell-terminal-deck {
+    display: block;
+  }
+  .shell-terminal-keys {
+    display: flex;
+  }
+  .shell-terminal-combos:not([hidden]) {
+    display: grid;
+  }
+  .chat-meta-button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+@media (pointer: coarse) and (max-width: 600px) {
+  .shell-pane > .chat-head {
+    min-height: 48px;
+    padding-block: 2px;
+  }
+  .shell-pane .shell-terminal {
+    padding-top: 2px;
+  }
+  .shell-terminal-keys {
+    padding-top: 2px;
+  }
+  .shell-terminal-keys button,
+  .shell-terminal-combos button {
+    position: relative;
+    isolation: isolate;
+    background: transparent;
+  }
+  .shell-terminal-keys button::before,
+  .shell-terminal-combos button::before {
+    content: '';
+    position: absolute;
+    z-index: -1;
+    inset: 2px 0;
+    border-radius: 8px;
+    background: var(--control);
+    pointer-events: none;
+  }
+}
+.side-thread {
+  flex: none;
+  padding: 6px
+    max(24px, calc((100% - var(--chat-content-width, var(--chat-default-content-width))) / 2));
+  border-bottom: 1px solid var(--line);
+}
+.side-thread-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.side-thread button {
+  min-height: 32px;
+  padding: 5px 10px;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 5px;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.side-thread button[aria-pressed='true'] {
+  background: var(--control);
+  color: var(--text);
+  font-weight: 600;
+}
+.side-thread button:hover:not(:disabled) {
+  background: var(--control);
+  color: var(--text);
+}
+.side-thread button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+#chatSideToggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.side-thread button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.side-thread .side-thread-close {
+  margin-left: auto;
+}
+.side-thread-error {
+  margin: 6px 0;
+  color: var(--danger, var(--text));
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+@media (pointer: coarse) {
+  .side-thread button {
+    min-height: 44px;
+  }
+}
+@media (max-width: 760px) {
+  .side-thread {
+    padding: 4px 12px;
+  }
+  .side-thread button {
+    padding-inline: 8px;
+  }
+}
+.shell-pane
+  > :is(
+    .chat-log,
+    #chatInput,
+    #chatGoal,
+    #chatControls,
+    #chatInlineQuestion,
+    #chatQuestionSummary,
+    #chatComposerError,
+    #attachmentList,
+    #agentStartup
+  ) {
+  display: none !important;
+}
+@media (max-width: 760px) {
+  .shell-terminal {
+    padding: 8px 12px;
+  }
+}
+/* A landscape keyboard can leave less than 320px. Reduce empty space while
+   retaining 44px input and key targets and a visible native cursor. */
+:root[data-compact-viewport] .chat-head {
+  min-height: 44px;
+  padding-block: 0;
+}
+:root[data-compact-viewport] .chat-log {
+  padding-block: 4px;
+}
+:root[data-compact-viewport] .chat-input {
+  margin-bottom: 8px;
+}
+:root[data-compact-viewport] .shell-terminal {
+  padding-block: 4px;
+}
+:root[data-compact-viewport] .shell-terminal-keys {
+  padding-top: 4px;
+}
+
+.chat-question-summary {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  margin: 0;
+  font: inherit;
+}
+.chat-question-open {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  height: var(--chat-status-row-height);
+  padding: 2px 0 4px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+}
+.chat-question-open:hover:not(:disabled) {
+  color: var(--observe);
+}
+.chat-question-prefix {
+  flex: none;
+  color: var(--goal-prefix, #b8bac2);
+}
+.chat-question-preview {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.chat-question-count {
+  flex: none;
+  margin-left: auto;
+  color: var(--muted);
+  font: inherit;
+}
+.chat-question-action {
+  background: transparent;
+  color: var(--muted);
+  padding: 6px 4px;
+  font-size: inherit;
+}
+.popover-group {
+  margin-top: 4px;
+  padding: 6px 10px 3px;
+  color: var(--muted);
+  font-size: 11px;
+  border-top: 1px solid var(--line);
+}
+.codex-question-interaction {
+  outline: none;
+}
+.codex-question-interaction .chat-inline-question-actions {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.codex-question-interaction .chat-inline-question-actions > button {
+  min-height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+.codex-question-interaction [role='status']:empty {
+  display: none;
+}
+.codex-question-interaction .chat-inline-option[aria-pressed='true'] {
+  color: var(--text);
+  background: var(--control);
+}
+.chat-question-open:focus-visible {
+  outline: 1px solid var(--focus-ring, var(--observe));
+  outline-offset: 2px;
+}
+.chat-controls,
+.chat-question-panel {
+  flex: none;
+  width: calc(100% - 48px);
+  max-width: var(--chat-content-width);
+  margin: 0 auto 6px;
+  min-width: 0;
+}
+.chat-controls {
+  --chat-status-row-height: calc(12px * var(--device-font-scale, 1) + 6px);
+  margin-bottom: 0;
+  padding-inline: 12px;
+}
+.chat-pending-inputs {
+  flex: none;
+  width: calc(100% - 48px);
+  max-width: var(--chat-content-width);
+  margin: 0 auto 6px;
+  padding-inline: 12px;
+  min-width: 0;
+  max-height: 25vh;
+  overflow-y: auto;
+  font-family: 'Cascadia Mono', monospace;
+  font-size: calc(11px * var(--device-font-scale, 1));
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.chat-pending-heading {
+  margin: 2px 0 0;
+  color: var(--text);
+  font-weight: 400;
+}
+.chat-pending-hint,
+.chat-pending-message {
+  color: var(--muted);
+}
+.chat-pending-message {
+  position: relative;
+  margin: 0;
+  padding-left: 1.5em;
+  white-space: pre-wrap;
+}
+.chat-pending-message::before {
+  content: '↳';
+  position: absolute;
+  left: 0;
+}
+@media (max-width: 760px) {
+  .chat-pending-inputs {
+    width: calc(100% - 24px);
+  }
+}
+.chat-status-line {
+  --chat-status-row-height: calc(12px * var(--device-font-scale, 1) + 6px);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  font-size: calc(12px * var(--device-font-scale, 1));
+  line-height: 1;
+}
+.chat-status-scroll {
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-inline: contain;
+  touch-action: pan-x;
+  scrollbar-width: none;
+}
+.chat-status-scroll::-webkit-scrollbar {
+  display: none;
+}
+/* Native status fields use their content width; touch keeps details pinned. */
+.chat-control-row {
+  display: flex;
+  align-items: center;
+  width: max-content;
+  min-width: 0;
+  white-space: nowrap;
+  font-family: 'Cascadia Mono', 'Swift Terminal CJK', ui-monospace, Consolas, monospace;
+  font-size: calc(11px * var(--device-font-scale, 1));
+  line-height: calc(12px * var(--device-font-scale, 1));
+}
+.chat-status-field {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: var(--chat-status-row-height);
+  white-space: nowrap;
+}
+.chat-status-separator {
+  flex: none;
+  height: var(--chat-status-row-height);
+  padding: 2px 1px 4px;
+  color: var(--muted);
+  user-select: none;
+}
+.chat-status-fixed {
+  position: relative;
+  display: grid;
+  align-items: center;
+}
+.chat-status-details {
+  display: none;
+}
+.chat-status-fixed::after {
+  content: '';
+  position: absolute;
+  left: -4px;
+  top: 50%;
+  width: 1px;
+  height: 0.7em;
+  transform: translateY(-50%);
+  background: var(--muted);
+  opacity: 0.28;
+}
+:is(.chat-status-line, .chat-status-activity) button {
+  width: auto;
+  min-width: 0;
+  min-height: 0;
+  height: var(--chat-status-row-height);
+  padding: 2px 2px 4px;
+  border-radius: 4px;
+  color: var(--muted);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+:is(.chat-status-line, .chat-status-activity) button:hover:not(:disabled) {
+  background: var(--button-hover, var(--control));
+}
+:is(.chat-status-line, .chat-status-activity) button:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+.chat-status-line .chat-status-interrupt {
+  display: none;
+}
+@media (min-width: 761px) and (hover: hover) and (pointer: fine) {
+  .chat-status-line {
+    grid-template-columns: minmax(0, max-content) max-content;
+    justify-content: start;
+    gap: 16px;
+  }
+  .chat-status-details {
+    display: grid;
+    grid-template-columns: max-content;
+  }
+  .chat-status-fixed::after {
+    left: -8px;
+  }
+  .chat-status-line .chat-status-interrupt {
+    display: block;
+  }
+}
+:is(.chat-status-line, .chat-status-activity) button[data-empty='true'] {
+  color: var(--faint);
+}
+:is(.chat-status-line, .chat-status-activity) button:focus-visible,
+.chat-status-scroll:focus-visible,
+.session-status-content button:focus-visible {
+  outline: 1px solid var(--focus-ring, var(--observe));
+  outline-offset: -1px;
+}
+.chat-status-line .chat-execution {
+  color: var(--muted);
+}
+.chat-execution-state,
+.chat-execution-elapsed {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-execution-elapsed {
+  color: var(--muted);
+  font-family: inherit;
+  font-size: inherit;
+  font-variant-numeric: tabular-nums;
+}
+.chat-control-row [data-tone='running'],
+.chat-control-row .chat-status-quota {
+  color: color-mix(in srgb, var(--accent) 70%, var(--muted));
+}
+.chat-control-row [data-tone='completed'],
+.chat-control-row #chatModelAction {
+  color: color-mix(in srgb, var(--observe) 70%, var(--muted));
+}
+.chat-control-row [data-tone='waiting'],
+.chat-control-row .chat-status-warning[data-empty='false'] {
+  color: color-mix(in srgb, var(--blocked) 70%, var(--muted));
+}
+.chat-control-row [data-tone='error'],
+.chat-control-row .chat-interrupt {
+  color: color-mix(in srgb, var(--danger) 70%, var(--muted));
+}
+.chat-control-row .chat-status-identity,
+.chat-control-row .chat-status-directory {
+  color: color-mix(in srgb, var(--goal-prefix, var(--observe)) 70%, var(--muted));
+}
+.chat-control-row #chatEffortAction {
+  color: color-mix(in srgb, var(--goal-color, var(--observe)) 70%, var(--muted));
+}
+.chat-status-line .chat-status-icon {
+  width: 100%;
+  display: grid;
+  place-items: center;
+  padding-inline: 0;
+}
+.chat-status-icon svg {
+  width: 1em;
+  height: 1em;
+}
+.chat-control-row .chat-status-quota[data-tone='waiting'] {
+  color: color-mix(in srgb, var(--blocked) 70%, var(--muted));
+}
+.chat-control-row .chat-status-quota[data-tone='error'] {
+  color: color-mix(in srgb, var(--danger) 70%, var(--muted));
+}
+.chat-status-notice.visually-hidden,
+.copy-feedback.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+/* Keep all three rows present while native hints and elapsed time change. */
+.chat-status-activity {
+  gap: 3px;
+  max-width: 100%;
+  height: var(--chat-status-row-height);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  overscroll-behavior-inline: contain;
+  touch-action: pan-x;
+}
+.chat-status-activity::-webkit-scrollbar {
+  display: none;
+}
+.chat-status-activity .chat-execution {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.chat-status-activity .chat-execution::before {
+  content: '';
+  flex: none;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.chat-status-activity [data-status-slot='elapsed']::before {
+  content: '(';
+  color: var(--muted);
+}
+.chat-status-activity [data-status-slot='elapsed']::after {
+  content: ')';
+  color: var(--muted);
+}
+.chat-status-hint-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--chat-status-row-height);
+  min-width: 0;
+  padding-left: 10px;
+  color: var(--muted);
+  font-family: 'Cascadia Mono', 'Swift Terminal CJK', ui-monospace, Consolas, monospace;
+  font-size: calc(11px * var(--device-font-scale, 1));
+  line-height: calc(12px * var(--device-font-scale, 1));
+}
+.chat-status-hint-row[data-empty='true']:not(:has(#chatComposerError:not([hidden]))):not(
+    :has(.chat-question-summary:not([hidden]))
+  ) {
+  visibility: hidden;
+}
+.chat-status-hint-row:has(.chat-question-summary:not([hidden])) .chat-status-hint {
+  display: none;
+}
+.chat-status-branch {
+  flex: none;
+}
+.chat-status-hint {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  height: var(--chat-status-row-height);
+  padding: 2px 0 4px;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chat-status-hint:hover {
+  color: var(--text);
+}
+#chatComposerError:focus-visible,
+.chat-status-hint:focus-visible {
+  outline: 1px solid var(--focus-ring, var(--observe));
+  outline-offset: -1px;
+}
+.chat-control-row .chat-status-directory {
+  max-width: 28ch;
+}
+.chat-control-row .chat-status-context {
+  color: color-mix(in srgb, var(--blocked) 70%, var(--muted));
+}
+.popover.session-status-popover {
+  width: min(430px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  max-height: min(60dvh, 520px);
+  padding: 12px;
+}
+.popover.session-status-brief {
+  width: min(300px, calc(100vw - 24px));
+}
+.popover.session-status-full {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.session-status-full > .session-status-content {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.session-status-full .session-status-facts {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.session-status-full .session-status-actions {
+  flex: none;
+}
+.session-status-actions #chatInterrupt {
+  color: var(--danger);
+}
+.session-native-buttons.session-status-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+.session-status-actions > button:first-child {
+  justify-self: start;
+}
+.session-status-actions > button:nth-child(2) {
+  justify-self: center;
+}
+.session-status-actions > button:last-child {
+  justify-self: end;
+}
+.session-status-facts {
+  margin: 0;
+  font-size: calc(12px * var(--device-font-scale, 1));
+  line-height: 1.7;
+}
+.session-status-facts > div {
+  display: grid;
+  grid-template-columns: minmax(5em, auto) minmax(0, 1fr);
+  gap: 6px 14px;
+  padding: 6px 0;
+}
+.session-status-facts dt {
+  color: var(--muted);
+}
+.session-status-facts dd {
+  min-width: 0;
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.session-status-content > p {
+  color: var(--muted);
+  font-size: calc(12px * var(--device-font-scale, 1));
+  line-height: 1.7;
+  margin: 10px 0 0;
+}
+.session-native-details {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: calc(12px * var(--device-font-scale, 1));
+  line-height: 1.7;
+}
+.session-native-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 12px;
+}
+.session-native-buttons[hidden] {
+  display: none;
+}
+.session-native-buttons > button {
+  min-height: 32px;
+  color: var(--muted);
+  background: transparent;
+  font-size: calc(12px * var(--device-font-scale, 1));
+}
+.session-native-progress {
+  align-self: center;
+  color: var(--muted);
+  font-size: calc(12px * var(--device-font-scale, 1));
+  font-variant-numeric: tabular-nums;
+}
+.session-native-buttons > button:focus-visible {
+  outline: 1px solid var(--focus-ring, var(--observe));
+  outline-offset: 2px;
+}
+.session-native-buttons > button:disabled {
+  opacity: 0.6;
+}
+@media (hover: none) and (pointer: coarse) {
+  .session-native-buttons > button {
+    min-height: 44px;
+  }
+}
+.chat-question-panel {
+  max-height: min(40dvh, 360px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding-block: 5px;
+  border-block: 1px solid var(--line);
+}
+.chat-question-panel textarea {
+  resize: vertical;
+  max-height: 20dvh;
+}
+@media (pointer: coarse) {
+  .codex-question-interaction .chat-inline-question-actions > button {
+    min-height: 44px;
+  }
+}
+@media (max-width: 760px) {
+  .chat-controls,
+  .chat-question-panel {
+    width: calc(100% - 24px);
+  }
+}
+@media (hover: none) and (pointer: coarse) {
+  .codex-question-interaction .chat-inline-question-actions > button {
+    min-height: 44px;
+  }
+}
+@media (max-width: 760px) {
+  .codex-question-interaction .chat-question-key {
+    display: none;
+  }
+}
+
+/* Shared desktop/mobile presentation control, independent of split layout. */
+.chat-mode-toggle {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  color: var(--muted);
+  background: transparent;
+}
+.chat-mode-toggle:hover {
+  color: var(--text);
+  background: var(--control);
+}
+.shell-terminal {
+  width: 100%;
+  max-width: 100%;
+}
+.shell-terminal .xterm {
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
+.shell-terminal-canvas .xterm-helpers {
+  width: var(--terminal-screen-width, 100%);
+}
+.shell-terminal-canvas .xterm .composition-view {
+  display: none !important;
+}
+.shell-terminal-canvas.terminal-composing .xterm-helper-textarea {
+  top: var(--terminal-composition-top) !important;
+  left: var(--terminal-composition-left) !important;
+}
+.shell-terminal-canvas .xterm-helper-textarea {
+  width: 1px !important;
+  height: var(--terminal-cell-height, 1em) !important;
+  line-height: var(--terminal-cell-height, normal) !important;
+  max-width: 1px;
+  max-height: 1lh;
+}
+
+/* Navigation and file tabs share the file reader's selected shape. */
+:root {
+  --navigation-tab-height: 26px;
+  --navigation-tab-radius: 5px;
+  --navigation-tab-background: rgba(var(--surface-rgb, 255, 255, 255), 0.05);
+}
+@media (pointer: coarse) {
+  :root {
+    --navigation-tab-height: 44px;
+  }
+}
+/* Workspace tabs use Herdr identities and stay in the existing header row. */
+.herdr-tabs[hidden] {
+  display: none;
+}
+.herdr-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+.herdr-tab-list {
+  display: flex;
+  flex: 0 1 auto;
+  gap: 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+  overscroll-behavior-inline: contain;
+  touch-action: pan-x;
+}
+.herdr-tab-list::-webkit-scrollbar {
+  display: none;
+}
+/* Names determine width, with the same long-name cap as file tabs; overflow scrolls. */
+.herdr-tab {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 180px;
+  border: 0;
+  border-radius: var(--navigation-tab-radius);
+  color: var(--muted);
+}
+.herdr-tab + .herdr-tab::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1px;
+  height: 12px;
+  background: var(--muted);
+  opacity: 0.25;
+  pointer-events: none;
+}
+/* Hover feedback stays inside the tab without resizing its hit area. */
+.herdr-tab::after {
+  content: '';
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  border-radius: var(--navigation-tab-radius);
+  pointer-events: none;
+}
+.herdr-tab:hover,
+.herdr-tab.selected {
+  color: var(--text);
+  background: var(--navigation-tab-background);
+}
+.herdr-tab:hover::before,
+.herdr-tab:hover + .herdr-tab::before,
+.herdr-tab.selected::before,
+.herdr-tab.selected + .herdr-tab::before {
+  opacity: 0;
+}
+.herdr-tab.selected .herdr-tab-label {
+  font-weight: 600;
+}
+.herdr-tab-select {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--navigation-tab-height);
+  min-width: 0;
+  padding: 0 6px 0 10px;
+  color: inherit;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: calc(13px * var(--device-font-scale, 1));
+}
+.herdr-tab-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.herdr-tab-close,
+.herdr-tab-add {
+  display: grid;
+  place-items: center;
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 5px;
+  font-size: 17px;
+  line-height: 1;
+  width: 24px;
+  height: 26px;
+  padding: 0;
+}
+.herdr-tab-close {
+  position: relative;
+  z-index: 2;
+  width: 24px;
+  height: var(--navigation-tab-height);
+  opacity: 0;
+}
+.herdr-tab:hover .herdr-tab-close,
+.herdr-tab:focus-within .herdr-tab-close,
+.herdr-tab.selected .herdr-tab-close {
+  opacity: 1;
+}
+.herdr-tab-close:hover {
+  color: var(--text);
+}
+.herdr-tab-add:hover {
+  color: var(--text);
+  background: var(--panel-2);
+}
+/* The held tab follows the pointer; only its neighbours and release settle. */
+.herdr-dragging-tab,
+.herdr-dragging-tab * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+.herdr-tab-list.tab-drag-active .herdr-tab {
+  transition: transform var(--motion-reorder) var(--ease-spatial);
+  will-change: transform;
+}
+.herdr-tab-list.tab-drag-active .herdr-tab-select:disabled {
+  opacity: 1;
+}
+.herdr-tab-list.tab-drag-active .herdr-tab::before {
+  opacity: 0;
+}
+.herdr-tab-list.tab-drag-active .tab-drag-held {
+  z-index: 3;
+  transition: none;
+  color: var(--text);
+}
+.herdr-tab-list.tab-drag-active .tab-drag-held::after {
+  background: var(--panel-2);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.16);
+}
+.herdr-tab-list.tab-drag-active .tab-drag-held.tab-drag-settling {
+  transition: transform var(--motion-reorder) var(--ease-spatial);
+}
+@media (prefers-reduced-motion: reduce) {
+  .herdr-tab-list.tab-drag-active .herdr-tab,
+  .herdr-tab-list.tab-drag-active .tab-drag-held.tab-drag-settling {
+    transition: none;
+  }
+}
+.herdr-tab-select:focus-visible,
+.herdr-tab-close:focus-visible,
+.herdr-tab-add:focus-visible {
+  outline: 1px solid var(--muted);
+  outline-offset: -2px;
+}
+.herdr-tab-select:disabled,
+.herdr-tab-close:disabled,
+.herdr-tab-add:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.chat-head.has-native-tabs > #chatCurrentDot,
+.chat-head.has-native-tabs > #chatCurrentName,
+.chat-head.has-native-tabs > #chatCurrentKind {
+  display: none;
+}
+.herdr-tab-navigation .chat-main > .chat-head {
+  flex-shrink: 0;
+  min-width: 0;
+}
+.chat-view {
+  --navigation-height: max(32px, calc(20px * var(--device-font-scale, 1) + 12px));
+}
+.chat-view .chat-head {
+  height: var(--navigation-height);
+  min-height: var(--navigation-height);
+  margin: 0;
+  padding: 0 12px;
+  gap: 4px;
+  border: 0;
+  background: var(--panel);
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+.chat-view .chat-sidebar {
+  padding-top: 0;
+}
+/* Extend the divider through the sidebar padding while retaining control positions. */
+.chat-view .chat-sidebar-top {
+  flex-shrink: 0;
+  height: var(--navigation-height);
+  min-height: var(--navigation-height);
+  margin-inline: -12px;
+  padding-inline: 8px;
+  background: var(--panel);
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+.herdr-tab-navigation .sidebar-modes button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.chat-view .chat-sidebar-top .chat-icon-btn,
+.chat-view .chat-head .chat-icon-btn,
+.chat-view .chat-head #chatDrawerToggle {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: var(--navigation-tab-radius);
+}
+/* Preserve the file toggle's existing wide-screen visibility. */
+.chat-view .chat-sidebar-top .chat-icon-btn,
+.chat-view .chat-head .chat-icon-btn:not(.chat-files-toggle),
+.chat-head.has-native-tabs .chat-files-toggle {
+  display: grid;
+  place-items: center;
+}
+@media (min-width: 761px) and (hover: hover) and (pointer: fine) {
+  .herdr-tab-navigation .files-open:not(.files-max) .chat-main {
+    grid-template-rows: auto auto minmax(0, 1fr);
+  }
+  .herdr-tab-navigation .files-open .chat-main > .chat-head {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .herdr-tab-navigation .files-open .herdr-operation-notice {
+    grid-row: 2;
+  }
+  .herdr-tab-navigation .files-open .herdr-pane-stage {
+    grid-row: 3;
+  }
+  .herdr-tab-navigation .files-open .session-files-page {
+    grid-row: 1 / 4;
+  }
+  .herdr-tab-navigation .files-open.files-max .chat-main > .chat-head {
+    display: none;
+  }
+  .herdr-tab-navigation .files-open.files-max .session-files-page {
+    grid-row: 1;
+  }
+}
+@media (pointer: coarse) {
+  .herdr-tab-select {
+    height: var(--navigation-tab-height);
+  }
+  .herdr-tab-close,
+  .herdr-tab-add {
+    width: 36px;
+    height: 44px;
+  }
+  .herdr-tab-close {
+    opacity: 1;
+  }
+  .chat-view {
+    --navigation-height: max(44px, calc(20px * var(--device-font-scale, 1) + 12px));
+  }
+  .herdr-tab-navigation .sidebar-modes button {
+    min-height: 44px;
+  }
+  .chat-view .chat-sidebar-top .chat-icon-btn,
+  .chat-view .chat-head .chat-icon-btn,
+  .chat-view .chat-head #chatDrawerToggle {
+    width: 44px;
+    height: 44px;
+  }
+  .herdr-tab-navigation .files-open .chat-main > .chat-head {
+    display: none;
+  }
+}
+
+/* Session files use the same full-width header as navigation and workspace files. */
+.chat-view .session-files-head {
+  flex: none;
+  height: var(--navigation-height);
+  min-height: var(--navigation-height);
+  padding: 0 12px;
+  gap: 4px;
+  border: 0;
+  background: var(--panel);
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+.chat-view .session-files-head .chat-files-action,
+.chat-view .session-files-head #chatFilesListBack {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: var(--navigation-tab-radius);
+  color: var(--muted);
+  background: transparent;
+}
+.chat-view .session-files-head .chat-files-action:hover {
+  color: var(--text);
+  background: var(--control);
+}
+.chat-view .session-files-head strong {
+  font-size: calc(13px * var(--device-font-scale, 1));
+}
+@media (pointer: coarse) {
+  .chat-view .session-files-head .chat-files-action,
+  .chat-view .session-files-head #chatFilesListBack {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+.chat-head.has-native-tabs.no-active-tab > #chatModeToggle,
+.chat-head.has-native-tabs.no-active-tab > #chatFilesToggle {
+  display: none;
+}
+
+.goal-dialog .chat-dialog-actions {
+  flex-wrap: wrap;
+}
+.goal-dialog .chat-dialog-actions .chat-btn {
+  min-height: 44px;
+  padding-inline: 12px;
+}
+.goal-dialog-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: calc(12px * var(--device-font-scale, 1));
+}
+.chat-sidebar .session-item.context-menu-target,
+.chat-tree-group.context-menu-target,
+.herdr-tab.context-menu-target {
+  background: var(--control);
+}
+
+/* Shared feedback for the history editor and its native rewind behavior. */
+.chat-message-edit {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  flex-shrink: 0;
+  width: calc(100% - 48px);
+  max-width: var(--chat-content-width);
+  margin: 0 auto 6px;
+  color: var(--muted);
+  font-size: calc(12px * var(--device-font-scale, 1));
+  line-height: 1.6;
+}
+.chat-message-edit[hidden] {
+  display: none;
+}
+.chat-message-edit-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.chat-message-edit-note {
+  flex-basis: 100%;
+  overflow-wrap: anywhere;
+}
+.chat-message-edit-cancel {
+  flex: none;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+@media (hover: hover) {
+  .chat-message-edit-cancel:hover {
+    background: var(--control);
+  }
+}
+@media (pointer: coarse) {
+  .chat-message-edit-cancel {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+@media (max-width: 760px) {
+  .chat-message-edit {
+    width: calc(100% - 24px);
+  }
+}
+
+/* Tool records retain the compact transcript; disclosure reveals semantic detail. */
+.chat-tool-row > summary {
+  transition: background-color var(--motion-feedback) var(--ease-feedback);
+}
+.chat-tool-row > summary::after {
+  content: none;
+}
+.chat-tool-row > summary:focus-visible,
+.tool-original > summary:focus-visible,
+.tool-body button:focus-visible,
+.tool-search-lines:focus-visible,
+.tool-diff-lines:focus-visible {
+  outline: 2px solid var(--observe);
+  outline-offset: -2px;
+  border-radius: 5px;
+}
+.chat-tool-row > summary:active {
+  background: var(--control);
+}
+.tool-chevron {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-left: auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: var(--tool-summary);
+  transition: transform var(--motion-disclosure) var(--ease-feedback);
+}
+.chat-tool-row[open] > summary .tool-chevron {
+  transform: rotate(90deg);
+}
+.chat-tool-row[data-presentation] .chat-tool-detail {
+  flex: 1;
+}
+.tool-summary-note {
+  flex: 0 1 auto;
+  max-width: 32%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--chat-secondary);
+  font-size: calc(11px * var(--device-font-scale, 1));
+}
+.tool-presentation {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.tool-presentation:empty {
+  display: none;
+}
+.tool-presentation .tool-section-head {
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.tool-presentation .tool-section-head > button {
+  margin-left: auto;
+}
+.tool-presentation pre {
+  margin: 0;
+}
+.tool-body {
+  padding: 10px 12px;
+}
+.tool-body button {
+  transition:
+    color var(--motion-feedback) var(--ease-feedback),
+    background-color var(--motion-feedback) var(--ease-feedback);
+}
+.tool-file-link {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  padding: 4px 0;
+  background: transparent;
+  color: var(--observe);
+  text-align: left;
+  overflow-wrap: anywhere;
+  font: inherit;
+  font-size: calc(11.5px * var(--device-font-scale, 1));
+}
+button.tool-file-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.tool-search-file,
+.tool-diff-file {
+  min-width: 0;
+}
+.tool-search-lines,
+.tool-diff-lines {
+  max-height: 360px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--muted) transparent;
+}
+.tool-search-line,
+.tool-diff-line {
+  display: grid;
+  align-items: baseline;
+  min-width: 0;
+  font:
+    calc(12px * var(--device-font-scale, 1))/1.75 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+}
+.tool-search-line {
+  grid-template-columns: 5ch minmax(0, 1fr);
+}
+.tool-diff-line {
+  grid-template-columns: 4ch 4ch 2ch minmax(0, 1fr);
+}
+.tool-diff-line.excerpt {
+  grid-template-columns: 2ch minmax(0, 1fr);
+}
+.tool-diff-line.excerpt .tool-line-number {
+  display: none;
+}
+.tool-search-line code,
+.tool-diff-line code {
+  font: inherit;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding-right: 6px;
+}
+.tool-line-number {
+  color: var(--chat-secondary);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  padding-right: 1ch;
+  user-select: none;
+}
+.tool-diff-sign {
+  user-select: none;
+  text-align: center;
+}
+.tool-search-line.context {
+  opacity: 0.8;
+}
+.tool-search-line.gap-before {
+  margin-top: 8px;
+  border-top: 1px dashed var(--line);
+  padding-top: 6px;
+}
+.tool-diff-line.added {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+.tool-diff-line.removed {
+  background: color-mix(in srgb, var(--danger) 9%, transparent);
+}
+.tool-diff-line.added .tool-diff-sign,
+.tool-added {
+  color: var(--accent);
+}
+.tool-diff-line.removed .tool-diff-sign,
+.tool-removed {
+  color: var(--danger);
+}
+.tool-diff-line.hunk {
+  color: var(--chat-secondary);
+  padding: 4px 0;
+}
+.tool-diff-line.hunk code {
+  color: inherit;
+}
+.tool-diff-stats {
+  display: inline-flex;
+  gap: 8px;
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.tool-result-note {
+  margin: 0;
+  color: var(--chat-secondary);
+  font-size: calc(11.5px * var(--device-font-scale, 1));
+  overflow-wrap: anywhere;
+}
+.tool-result-note.failed,
+.tool-load-error {
+  color: var(--danger);
+}
+.tool-original {
+  margin-top: 10px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+.tool-original > summary {
+  cursor: pointer;
+  color: var(--chat-secondary);
+  font-size: calc(11px * var(--device-font-scale, 1));
+  padding: 4px 0;
+}
+.tool-original-content {
+  padding-top: 8px;
+}
+.tool-show-more {
+  display: block;
+  width: 100%;
+  padding: 6px;
+  background: transparent;
+  color: var(--observe);
+  font: inherit;
+  text-align: center;
+}
+.tool-show-more:hover {
+  background: var(--control);
+}
+.chat-tool-row[open] > .tool-body {
+  animation: tool-detail-appear var(--motion-disclosure) var(--ease-feedback);
+}
+@keyframes tool-detail-appear {
+  from {
+    opacity: 0.7;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (pointer: coarse) {
+  .chat-tool-row > summary {
+    min-height: 36px;
+  }
+  .tool-body button,
+  .tool-original > summary {
+    min-height: 36px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-tool-row > summary,
+  .tool-chevron,
+  .tool-body button {
+    transition: none;
+  }
+  .chat-tool-row[open] > .tool-body {
+    animation: none;
+  }
+}
+
+.tool-presentation .tool-section-head > .tool-file-link {
+  margin-left: 0;
+  flex: 1;
+}
+
+.chat-status-draft-action {
+  flex: 0 0 auto;
+  padding: 2px 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* Shared control states: local response, visible keyboard focus, no spatial effect on input. */
+:where(button, input, textarea, select, summary, [role='separator']):focus-visible {
+  outline: 2px solid var(--focus-ring, var(--observe));
+  outline-offset: -2px;
+}
+:is(
+    .chat-icon-btn,
+    .chat-input-attach,
+    .chat-meta-button,
+    .sidebar-navigation-more,
+    .popover-item,
+    .server-trigger
+  ):active:not(:disabled) {
+  background-color: var(--panel-2);
+  color: var(--text);
+}
+.chat-input-send:active:not(:disabled) {
+  background-color: #3f6ea0;
+}
+:where(button)[aria-busy='true'] {
+  cursor: progress;
+}
+:where(button):disabled {
+  cursor: default;
+}
+::selection {
+  color: var(--bg);
+  background: var(--observe);
+}
+input,
+textarea {
+  caret-color: var(--text);
+}
+.sidebar-navigation {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--control-gap);
+}
+.sidebar-navigation .sidebar-modes {
+  flex: 1;
+}
+.sidebar-navigation-more {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: var(--navigation-tab-height);
+  padding: 0;
+  border-radius: var(--control-radius);
+  color: var(--muted);
+  background: transparent;
+}
+.sidebar-navigation-more[hidden] {
+  display: none;
+}
+.sidebar-navigation-more[data-direction='back'] svg {
+  transform: rotate(180deg);
+}
+.sidebar-navigation-more:hover {
+  color: var(--text);
+  background: var(--navigation-tab-background);
+}
+.chat-resizer:focus-visible {
+  outline: 2px solid var(--observe);
+  outline-offset: -2px;
+  background: var(--line);
+}
+.chat-meta {
+  position: relative;
+  flex-wrap: wrap;
+}
+button.chat-meta-time {
+  padding: 0 4px;
+  min-height: 28px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  border-radius: var(--control-radius);
+}
+.chat-meta-date {
+  flex-basis: 100%;
+  order: 2;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.copy-action {
+  position: relative;
+}
+.copy-action[data-copy-state='done'] {
+  color: var(--accent);
+}
+.copy-action[data-copy-state='error'],
+.copy-feedback:not(.visually-hidden) {
+  color: var(--danger);
+}
+.copy-feedback:not(.visually-hidden) {
+  font-size: calc(12px * var(--device-font-scale, 1));
+  overflow-wrap: anywhere;
+}
+.copy-action[data-copy-state='done']::after {
+  content: '';
+  position: absolute;
+  width: 10px;
+  height: 6px;
+  top: calc(50% - 4px);
+  left: calc(50% - 5px);
+  border-left: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+}
+.copy-action[data-copy-state='done'] > svg {
+  visibility: hidden;
+}
+.tool-section-head .copy-action,
+.code-actions .copy-action {
+  min-width: 4em;
+}
+.tool-section-head .copy-action[data-copy-state='done'],
+.code-actions .copy-action[data-copy-state='done'] {
+  color: transparent;
+}
+.tool-section-head .copy-action[data-copy-state='done']::after,
+.code-actions .copy-action[data-copy-state='done']::after {
+  color: var(--accent);
+}
+@media (pointer: coarse), (max-width: 760px) {
+  .chat-controls {
+    position: relative;
+  }
+  .chat-status-activity {
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .chat-status-line {
+    display: block;
+  }
+  .chat-status-fixed::after {
+    display: none;
+  }
+  .chat-status-line .chat-status-icon {
+    width: var(--control-touch-size);
+    height: var(--control-touch-size);
+    border-radius: var(--control-radius);
+    background: var(--panel-2);
+  }
+  .chat-input {
+    grid-template-columns: minmax(0, 1fr) var(--control-touch-size) var(--control-touch-size);
+  }
+  .chat-input-attach,
+  .chat-input-send,
+  .chat-input-send-area {
+    width: var(--control-touch-size);
+  }
+  .chat-input-attach,
+  .chat-input-send {
+    height: var(--control-touch-size);
+  }
+  .chat-head .chat-icon-btn,
+  .chat-head .chat-drawer-toggle,
+  .sidebar-navigation-more {
+    min-width: var(--control-touch-size);
+    min-height: var(--control-touch-size);
+  }
+  button.chat-meta-time {
+    min-height: var(--control-touch-size);
+  }
+  .session-native-buttons > button {
+    min-height: var(--control-touch-size);
+    padding-inline: 8px;
+  }
+}
+
+/* Goal uses authoritative state, never a terminal transcript preview. */
+.goal-dialog {
+  width: min(520px, calc(100% - 24px));
+  max-height: min(calc(var(--visual-viewport-height, 100dvh) - 24px), 680px);
+  margin-block: 0;
+  top: var(--goal-top, 12px);
+}
+.goal-dialog .chat-dialog-form {
+  gap: 16px;
+  max-height: inherit;
+}
+.goal-dialog .chat-dialog-body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  gap: 12px;
+}
+.goal-dialog .chat-goal-detail {
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: calc(14px * var(--device-font-scale, 1));
+}
+.goal-dialog-status {
+  margin: 0;
+  color: var(--muted);
+  font-size: calc(12px * var(--device-font-scale, 1));
+}
+.goal-dialog-status[data-status='active'] {
+  color: var(--accent);
+}
+.goal-dialog-status[data-status='complete'] {
+  color: var(--accent);
+}
+.goal-dialog-label {
+  color: var(--text);
+  font-weight: 550;
+}
+.goal-dialog-feedback {
+  margin: 0;
+  color: var(--text);
+  font-size: calc(12px * var(--device-font-scale, 1));
+}
+.goal-dialog .chat-dialog-actions {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  gap: 8px;
+}
+.goal-dialog .chat-dialog-actions .goal-primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.goal-dialog[data-goal-mode='replace'] .chat-goal-detail {
+  max-height: 100px;
+  overflow-y: auto;
+  color: var(--muted);
+  font-size: calc(12px * var(--device-font-scale, 1));
+}
+
+.goal-dialog .chat-dialog-actions .goal-primary.danger {
+  background: var(--danger);
+  color: var(--bg);
+}
+
+/* User-message navigation stays outside the scrolling transcript. */
+.message-navigation {
+  position: absolute;
+  z-index: 7;
+  inset-inline-end: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 44px;
+  max-height: min(440px, 64%);
+  display: flex;
+  flex-direction: column;
+}
+.message-navigation[hidden],
+.shell-pane > .message-navigation {
+  display: none;
+}
+.chat-log:has(+ .message-navigation:not([hidden])) {
+  padding-inline-end: max(48px, calc((100% - var(--chat-content-width)) / 2));
+}
+.message-navigation-marks {
+  position: relative;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  overflow-anchor: none;
+  scrollbar-width: none;
+  touch-action: pan-y;
+}
+.message-navigation-mark {
+  display: block;
+  width: 44px;
+  height: 28px;
+  min-height: 0;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.message-navigation-mark::after {
+  content: '';
+  display: block;
+  width: 4px;
+  height: 4px;
+  margin: auto;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.55;
+}
+.message-navigation-mark[aria-current]::after {
+  width: 6px;
+  height: 6px;
+  opacity: 0.7;
+}
+.message-navigation-mark[aria-current] {
+  color: var(--text);
+}
+.message-navigation-mark[data-selected],
+.message-navigation-mark:focus-visible {
+  color: var(--accent);
+}
+.message-navigation button:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+.message-navigation-preview {
+  position: absolute;
+  inset-inline-end: 50px;
+  top: 50%;
+  transform: translateY(-50%);
+  transform-origin: right center;
+  display: block;
+  width: min(300px, calc(100vw - 84px));
+  height: auto;
+  min-height: 0;
+  padding: 14px 16px 11px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow:
+    0 6px 24px #0003,
+    0 1px 4px #0002;
+  text-align: start;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.message-navigation-preview::after {
+  content: '';
+  position: absolute;
+  inset-inline-end: -4px;
+  top: calc(50% - 4px);
+  width: 8px;
+  height: 8px;
+  background: var(--panel);
+  transform: rotate(45deg);
+}
+.message-navigation-preview-content {
+  display: block;
+}
+.message-navigation-preview strong {
+  font-weight: 500;
+}
+.message-navigation-preview-text {
+  margin: 7px 0 0;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.message-navigation-preview-hint {
+  display: block;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.message-navigation-preview:disabled {
+  cursor: default;
+}
+.message-navigation-target {
+  animation: message-navigation-highlight 1.2s ease-out;
+}
+@keyframes message-navigation-highlight {
+  from {
+    background-color: var(--line);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+@media (hover: hover) and (pointer: fine) {
+  .message-navigation-mark:hover {
+    color: var(--text);
+  }
+}
+@media (pointer: coarse) {
+  .message-navigation {
+    inset-inline-end: 0;
+  }
+  .message-navigation-mark {
+    height: 44px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .message-navigation-target {
+    animation: none;
+    outline: 1px solid var(--line);
+  }
+}
+
+.message-navigation-preview[hidden] {
+  display: none !important;
+}
+.server-update-settings [role='status'] {
+  overflow-wrap: anywhere;
+}
+.server-update-settings a {
+  display: inline-block;
+  max-width: 100%;
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}
+.server-update-settings a[hidden] {
+  display: none;
+}

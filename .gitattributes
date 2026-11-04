@@ -1,0 +1,12 @@
+* text=auto eol=lf
+*.bat text eol=crlf
+*.png binary
+*.ico binary
+*.jar binary
+*.woff binary
+*.woff2 binary
+*.patch whitespace=-blank-at-eol
+# Preserve exact upstream and serialized input bytes.
+public/vendor/** -text
+test/fixtures/** -text
+*.patch -text

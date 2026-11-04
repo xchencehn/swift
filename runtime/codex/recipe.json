@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "name": "swift-codex-account-hfork",
+  "upstream": "https://github.com/openai/codex.git",
+  "target": "x86_64-unknown-linux-gnu",
+  "baseline": {
+    "version": "0.164.0",
+    "upstreamCommit": "fe3b29455488c2e189e43ad5526a107900c5e1b7",
+    "customCommit": "a774a5594ac0ed20e1efc13922b2aebdf1ce9d9e",
+    "binarySha256": "1da4f604b12ee3cc47aee36b20f94affe8e7470699e737b0dadeb3ab322e541a"
+  },
+  "retrySeconds": 21600,
+  "pollSeconds": 120,
+  "buildJobs": 2
+}

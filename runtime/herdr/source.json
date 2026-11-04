@@ -1,0 +1,14 @@
+{
+  "upstream": "https://github.com/herdrdev/herdr.git",
+  "base": "2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01",
+  "tag": "v0.9.5",
+  "version": "0.9.5-swift.2",
+  "license": "Apache-2.0",
+  "terminal_state_version": 1,
+  "terminal_input_version": 1,
+  "handoff_identity_version": 1,
+  "handoff_snapshot_version": 1,
+  "source_mode": "patch",
+  "patch": "runtime.patch",
+  "patch_sha256": "e37bd96747f682fadaa9ee9dca6a76d86c4fe5d71b825d6b1ca0dd0f891e3d60"
+}

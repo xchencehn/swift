@@ -1,0 +1,100 @@
+.desktop-connection-content {
+  font-size: calc(13px * var(--device-font-scale, 1));
+  line-height: 1.6;
+}
+.desktop-connection-content section + section {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+}
+.desktop-connection-content h2 {
+  font-size: inherit;
+  font-weight: 500;
+  margin: 0 0 10px;
+}
+.desktop-connection-content fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0 0 16px;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.desktop-connection-content legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+.desktop-connection-content label {
+  display: block;
+  margin-bottom: 6px;
+}
+.desktop-connection-content input:not([type='radio']) {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: var(--text);
+  background: var(--control);
+  font: inherit;
+}
+.desktop-connection-content .hint,
+.desktop-connection-content small {
+  color: var(--muted);
+  font-size: calc(12px * var(--device-font-scale, 1));
+  overflow-wrap: anywhere;
+}
+.desktop-connection-content button {
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.desktop-connection-content button:hover:not(:disabled) {
+  background: var(--control);
+}
+.desktop-connection-content button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+.desktop-connection-content #connectButton {
+  margin-top: 12px;
+}
+.desktop-connection-content #status {
+  min-height: 20px;
+  overflow-wrap: anywhere;
+}
+.desktop-connection-content .profile {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.desktop-connection-content .profileInfo {
+  min-width: 0;
+  flex: 1;
+}
+.desktop-connection-content .profileInfo strong,
+.desktop-connection-content .profileInfo small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.desktop-connection-content .profile > div:last-child {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.desktop-connection-content :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

@@ -1,0 +1,11 @@
+Swift
+Copyright 2026 Swift contributors
+
+Swift original source code is licensed under the Apache License, Version 2.0.
+See LICENSE for the full license text.
+
+This distribution includes or adapts material from third-party projects.
+Their copyright notices and licenses remain in public/vendor/, third_party/,
+and runtime/codex/UPSTREAM_LICENSE. See docs/THIRD_PARTY.md for provenance and
+component-specific distribution requirements. This notice does not relicense
+third-party material.

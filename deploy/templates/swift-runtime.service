@@ -1,0 +1,14 @@
+[Unit]
+Description=Optional Herdr supervisor for swift
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=@CONFIG@/runtime.env
+ExecStart=@SOURCE@/deploy/swift-runtime.sh
+Restart=always
+RestartSec=5
+KillMode=process
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,4 @@
+# Copy to swift.properties (ignored by Git) or set matching environment variables.
+# Tencent relay fast path. This endpoint is currently plain HTTP/WS.
+baseUrl=https://150.158.39.216:8000/swift
+token=replace-with-dedicated-android-token

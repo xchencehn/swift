@@ -1,0 +1,1337 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#17171a" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="agent-studio-base-path" content="__AGENT_STUDIO_BASE_PATH__" />
+    <meta name="agent-studio-assets-version" content="__ASSET_VERSION__" />
+    <meta name="agent-studio-root-settings" content="__ROOT_SETTINGS__" />
+    <script src="device-theme.js?v=__ASSET_VERSION__"></script>
+    <script src="device-font.js?v=__ASSET_VERSION__"></script>
+    <title>swift</title>
+    <link rel="manifest" href="manifest.webmanifest?v=__ASSET_VERSION__" />
+    <link rel="icon" href="favicon.svg?v=__ASSET_VERSION__" type="image/svg+xml" />
+    <link rel="stylesheet" href="vendor/katex/katex.min.css?v=__ASSET_VERSION__" />
+    <link rel="stylesheet" href="vendor/cascadia/fonts.css?v=__ASSET_VERSION__" />
+    <link rel="stylesheet" href="style.css?v=__ASSET_VERSION__" />
+    <link rel="stylesheet" href="connection-switcher.css?v=__ASSET_VERSION__" />
+    <link rel="stylesheet" href="files/workspace.css?v=__ASSET_VERSION__" />
+  </head>
+  <body>
+    <div class="app-shell" id="appShell">
+      <main class="main-panel">
+        <div class="chat-view" id="chatView" hidden>
+          <aside class="chat-sidebar" id="chatSidebar">
+            <div class="chat-sidebar-top">
+              <div class="sidebar-navigation">
+                <div class="chat-rail-title sidebar-modes" role="tablist" aria-label="会话排列">
+                  <button
+                    id="sidebarWorkspaces"
+                    type="button"
+                    role="tab"
+                    aria-selected="true"
+                    aria-controls="chatPickerList"
+                  >
+                    spaces
+                  </button>
+                  <button
+                    id="sidebarRecent"
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="chatPickerList"
+                  >
+                    agent
+                  </button>
+                  <button
+                    id="sidebarHistory"
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="chatPickerList"
+                  >
+                    archive
+                  </button>
+                  <button
+                    id="sidebarFiles"
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="workspaceFilesTree"
+                  >
+                    files
+                  </button>
+                </div>
+                <button
+                  id="sidebarNavigationMore"
+                  class="sidebar-navigation-more"
+                  type="button"
+                  aria-label="显示后面的导航"
+                  hidden
+                >
+                  <svg
+                    viewBox="0 0 16 16"
+                    width="14"
+                    height="14"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    aria-hidden="true"
+                  >
+                    <path d="m6 3 5 5-5 5" />
+                  </svg>
+                </button>
+              </div>
+              <button
+                class="chat-icon-btn"
+                id="chatSearchToggle"
+                type="button"
+                title="按名字筛选"
+                aria-label="按名字筛选"
+                aria-expanded="false"
+              >
+                <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+                  <circle
+                    cx="7"
+                    cy="7"
+                    r="5"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.3"
+                  />
+                  <path
+                    d="M10.8 10.8 14 14"
+                    stroke="currentColor"
+                    stroke-width="1.3"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </button>
+              <button
+                class="chat-drawer-toggle chat-sidebar-collapse"
+                id="chatSidebarCollapse"
+                type="button"
+                aria-label="收起左栏"
+                title="收起左栏"
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  aria-hidden="true"
+                >
+                  <rect x="3" y="4" width="18" height="16" rx="3" />
+                  <path d="M9 4v16" />
+                </svg>
+              </button>
+            </div>
+            <label class="session-search" id="chatSearchBox" hidden>
+              <input
+                type="search"
+                id="chatPickerSearch"
+                placeholder="按名字筛选"
+                autocomplete="off"
+              />
+            </label>
+            <div class="session-list" id="chatPickerList"></div>
+            <section
+              id="workspaceFilesTree"
+              class="workspace-files-tree"
+              hidden
+              aria-label="文件浏览"
+            >
+              <div class="workspace-tree-header">
+                <span class="workspace-tree-path"></span
+                ><button
+                  class="workspace-tree-refresh chat-icon-btn"
+                  type="button"
+                  aria-label="刷新目录"
+                  title="刷新目录"
+                >
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    aria-hidden="true"
+                  >
+                    <path d="M20 7v5h-5M19 12a7 7 0 1 0-2 5" />
+                  </svg>
+                </button>
+              </div>
+              <div class="workspace-tree-body"></div>
+            </section>
+            <button
+              id="chatDeviceSettings"
+              class="chat-device-settings"
+              type="button"
+              aria-controls="settingsPage"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                width="18"
+                height="18"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                aria-hidden="true"
+              >
+                <path
+                  d="m9.5 3-.6 2.2-2 .9-2.1-.6-2.5 4.3 1.6 1.6v2.3l-1.6 1.6 2.5 4.3 2.2-.6 1.9 1 .6 2h5l.6-2 1.9-1 2.2.6 2.5-4.3-1.6-1.6v-2.3l1.6-1.6-2.5-4.3-2.1.6-2-.9L14.5 3Z"
+                />
+                <circle cx="12" cy="12.5" r="3.3" />
+              </svg>
+              <span>设置</span>
+            </button>
+            <div
+              class="chat-resizer"
+              id="chatResizer"
+              tabindex="0"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="列表宽度，左右键调整，Home 恢复默认"
+            ></div>
+          </aside>
+          <div class="chat-main">
+            <section
+              id="workspaceFilesPage"
+              class="workspace-files-page"
+              hidden
+              aria-label="文件阅读"
+            >
+              <header class="workspace-files-header">
+                <button
+                  type="button"
+                  class="workspace-files-back chat-icon-btn"
+                  aria-label="返回会话"
+                  title="返回会话"
+                >
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    aria-hidden="true"
+                  >
+                    <path d="m14 6-6 6 6 6M8 12h12" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  class="workspace-files-sidebar chat-icon-btn"
+                  aria-label="显示侧栏"
+                  title="显示侧栏"
+                  aria-controls="chatSidebar"
+                >
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    aria-hidden="true"
+                  >
+                    <rect x="3" y="4" width="18" height="16" rx="3" />
+                    <path d="M9 4v16" />
+                  </svg>
+                </button>
+                <div class="workspace-file-tabs" role="tablist" aria-label="打开的文件"></div>
+              </header>
+              <div class="workspace-file-toolbar">
+                <nav class="workspace-file-path" aria-label="文件路径"></nav>
+                <div class="workspace-file-tools">
+                  <button
+                    type="button"
+                    class="workspace-file-menu-toggle chat-icon-btn"
+                    aria-label="文件标签页操作"
+                    title="文件标签页操作"
+                    aria-haspopup="menu"
+                  >
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                      aria-hidden="true"
+                    >
+                      <circle cx="5" cy="12" r="1.5" />
+                      <circle cx="12" cy="12" r="1.5" />
+                      <circle cx="19" cy="12" r="1.5" />
+                    </svg>
+                  </button>
+                  <button type="button" class="workspace-file-source" hidden>源码</button>
+                  <button type="button" class="workspace-file-edit workspace-file-action" hidden>
+                    编辑
+                  </button>
+                  <button type="button" class="workspace-file-save workspace-file-action" hidden>
+                    保存
+                  </button>
+                  <button type="button" class="workspace-file-cancel workspace-file-action" hidden>
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    class="workspace-file-outline-toggle chat-icon-btn"
+                    hidden
+                    aria-label="目录"
+                    title="目录"
+                    aria-expanded="false"
+                  >
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                      aria-hidden="true"
+                    >
+                      <path d="M9 5h12M9 12h12M9 19h12M3 5h1M3 12h1M3 19h1" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    class="workspace-file-reload chat-icon-btn"
+                    aria-label="刷新文件"
+                    title="刷新文件"
+                  >
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                      aria-hidden="true"
+                    >
+                      <path d="M20 7v5h-5M19 12a7 7 0 1 0-2 5" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    class="workspace-file-copy chat-icon-btn"
+                    hidden
+                    aria-label="复制全文"
+                    title="复制全文"
+                  >
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                      aria-hidden="true"
+                    >
+                      <rect x="8" y="8" width="12" height="13" rx="2" />
+                      <path d="M16 8V3H4v13h4" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    class="workspace-file-download chat-icon-btn"
+                    aria-label="保存文件"
+                    title="保存文件"
+                  >
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                      aria-hidden="true"
+                    >
+                      <path d="M12 3v12m-5-5 5 5 5-5M4 17v4h16v-4" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <p class="workspace-file-notice" role="status"></p>
+              <div class="workspace-file-views"></div>
+            </section>
+            <section id="settingsPage" class="settings-page" hidden aria-labelledby="settingsTitle">
+              <!-- 标题栏与会话文件面板同一个样子：左上角返回，紧跟标题；滚动时钉在顶部。 -->
+              <header class="settings-bar">
+                <button
+                  id="settingsBack"
+                  class="settings-back"
+                  type="button"
+                  aria-label="返回会话"
+                  title="返回会话"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="18"
+                    height="18"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    aria-hidden="true"
+                  >
+                    <path d="m14 6-6 6 6 6M8 12h12" />
+                  </svg>
+                </button>
+                <h1 id="settingsTitle" tabindex="-1">设置</h1>
+              </header>
+              <div class="settings-content">
+                <div class="settings-layout">
+                  <nav class="settings-nav" aria-label="设置分类">
+                    <section class="settings-group" aria-labelledby="settingsDisplayGroup">
+                      <h2 id="settingsDisplayGroup">显示</h2>
+                      <div class="settings-row-list">
+                        <button
+                          id="settingsAppearanceTab"
+                          type="button"
+                          aria-labelledby="settingsAppearanceTabLabel"
+                          aria-describedby="settingsAppearanceTabDescription settingsAppearanceTabValue"
+                          aria-controls="settingsAppearance"
+                          data-settings-category="appearance"
+                        >
+                          <svg
+                            viewBox="0 0 24 24"
+                            width="20"
+                            height="20"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            aria-hidden="true"
+                          >
+                            <rect x="3" y="4" width="18" height="14" rx="2" />
+                            <path d="M8 22h8M12 18v4" /></svg
+                          ><span class="settings-row-copy"
+                            ><span class="settings-row-title" id="settingsAppearanceTabLabel"
+                              >主题</span
+                            ><span
+                              class="settings-row-description"
+                              id="settingsAppearanceTabDescription"
+                              >界面与内容配色</span
+                            ></span
+                          ><span
+                            class="settings-row-value"
+                            id="settingsAppearanceTabValue"
+                            data-settings-value="appearance"
+                          ></span
+                          ><svg
+                            class="settings-row-chevron"
+                            viewBox="0 0 24 24"
+                            width="16"
+                            height="16"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            aria-hidden="true"
+                          >
+                            <path d="m9 6 6 6-6 6" />
+                          </svg>
+                        </button>
+                        <button
+                          id="settingsFontTab"
+                          type="button"
+                          aria-labelledby="settingsFontTabLabel"
+                          aria-describedby="settingsFontTabDescription settingsFontTabValue"
+                          aria-controls="settingsFont"
+                          data-settings-category="font"
+                        >
+                          <svg
+                            viewBox="0 0 24 24"
+                            width="20"
+                            height="20"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            aria-hidden="true"
+                          >
+                            <path d="M4 19 10 5h2l6 14M6 14h10M19 10v9m-2-7 2-2 2 2" /></svg
+                          ><span class="settings-row-copy"
+                            ><span class="settings-row-title" id="settingsFontTabLabel"
+                              >界面字号</span
+                            ><span class="settings-row-description" id="settingsFontTabDescription"
+                              >界面与会话文字大小</span
+                            ></span
+                          ><span
+                            class="settings-row-value"
+                            id="settingsFontTabValue"
+                            data-settings-value="font"
+                          ></span
+                          ><svg
+                            class="settings-row-chevron"
+                            viewBox="0 0 24 24"
+                            width="16"
+                            height="16"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            aria-hidden="true"
+                          >
+                            <path d="m9 6 6 6-6 6" />
+                          </svg>
+                        </button>
+                        <button
+                          id="settingsTerminalTab"
+                          type="button"
+                          aria-labelledby="settingsTerminalTabLabel"
+                          aria-describedby="settingsTerminalTabDescription settingsTerminalTabValue"
+                          aria-controls="settingsTerminal"
+                          data-settings-category="terminal"
+                        >
+                          <svg
+                            viewBox="0 0 24 24"
+                            width="20"
+                            height="20"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            aria-hidden="true"
+                          >
+                            <rect x="3" y="4" width="18" height="16" rx="2" />
+                            <path d="m7 9 3 3-3 3m6 0h4" /></svg
+                          ><span class="settings-row-copy"
+                            ><span class="settings-row-title" id="settingsTerminalTabLabel"
+                              >终端字号</span
+                            ><span
+                              class="settings-row-description"
+                              id="settingsTerminalTabDescription"
+                              >独立设置终端文字</span
+                            ></span
+                          ><span
+                            class="settings-row-value"
+                            id="settingsTerminalTabValue"
+                            data-settings-value="terminal"
+                          ></span
+                          ><svg
+                            class="settings-row-chevron"
+                            viewBox="0 0 24 24"
+                            width="16"
+                            height="16"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            aria-hidden="true"
+                          >
+                            <path d="m9 6 6 6-6 6" />
+                          </svg>
+                        </button>
+                      </div>
+                    </section>
+                    <section class="settings-group" aria-labelledby="settingsSoftwareGroup">
+                      <h2 id="settingsSoftwareGroup">软件</h2>
+                      <div class="settings-row-list">
+                        <button
+                          id="settingsUpdateTab"
+                          type="button"
+                          aria-labelledby="settingsUpdateTabLabel"
+                          aria-describedby="settingsUpdateTabDescription"
+                          aria-controls="settingsUpdate"
+                          data-settings-category="update"
+                        >
+                          <svg
+                            viewBox="0 0 24 24"
+                            width="20"
+                            height="20"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            aria-hidden="true"
+                          >
+                            <path
+                              d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-2l2 2M4 17l2 2a7 7 0 0 0 12-2"
+                            /></svg
+                          ><span class="settings-row-copy"
+                            ><span class="settings-row-title" id="settingsUpdateTabLabel"
+                              >客户端更新</span
+                            ><span
+                              class="settings-row-description"
+                              id="settingsUpdateTabDescription"
+                              >此设备的 Swift 版本与更新</span
+                            ></span
+                          ><svg
+                            class="settings-row-chevron"
+                            viewBox="0 0 24 24"
+                            width="16"
+                            height="16"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            aria-hidden="true"
+                          >
+                            <path d="m9 6 6 6-6 6" />
+                          </svg>
+                        </button>
+                      </div>
+                    </section>
+                    <section class="settings-group" aria-labelledby="settingsConnectionGroup">
+                      <h2 id="settingsConnectionGroup">连接</h2>
+                      <div class="settings-row-list">
+                        <button
+                          id="settingsConnectionTab"
+                          type="button"
+                          aria-labelledby="settingsConnectionTabLabel"
+                          aria-describedby="settingsConnectionTabDescription settingsConnectionTabValue"
+                          aria-controls="settingsConnection"
+                          data-settings-category="connection"
+                        >
+                          <svg
+                            viewBox="0 0 24 24"
+                            width="20"
+                            height="20"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            aria-hidden="true"
+                          >
+                            <rect x="3" y="3" width="18" height="7" rx="2" />
+                            <rect x="3" y="14" width="18" height="7" rx="2" />
+                            <path d="M7 6.5h.01M7 17.5h.01" stroke-linecap="round" /></svg
+                          ><span class="settings-row-copy"
+                            ><span class="settings-row-title" id="settingsConnectionTabLabel"
+                              >服务器</span
+                            ><span
+                              class="settings-row-description"
+                              id="settingsConnectionTabDescription"
+                              >连接配置与根目录</span
+                            ></span
+                          ><span
+                            class="settings-row-value"
+                            id="settingsConnectionTabValue"
+                            data-settings-value="connection"
+                          ></span
+                          ><svg
+                            class="settings-row-chevron"
+                            viewBox="0 0 24 24"
+                            width="16"
+                            height="16"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            aria-hidden="true"
+                          >
+                            <path d="m9 6 6 6-6 6" />
+                          </svg>
+                        </button>
+                      </div>
+                    </section>
+                  </nav>
+                  <div id="settingsBody"></div>
+                </div>
+              </div>
+            </section>
+            <!-- 页面宽度把手：聊天、终端、设置与最大化文件页复用交互，按页面保存宽度。 -->
+            <div
+              id="chatContentResizer"
+              class="chat-content-resizer"
+              role="separator"
+              aria-label="正文宽度"
+              aria-orientation="vertical"
+              tabindex="0"
+            ></div>
+            <div class="chat-conversation">
+              <header class="chat-head">
+                <button
+                  class="chat-drawer-toggle"
+                  id="chatDrawerToggle"
+                  type="button"
+                  aria-label="会话列表"
+                >
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    aria-hidden="true"
+                  >
+                    <rect x="3" y="4" width="18" height="16" rx="3" />
+                    <path d="M9 4v16" />
+                  </svg>
+                </button>
+                <span
+                  class="status-dot"
+                  id="chatCurrentDot"
+                  role="img"
+                  aria-label="正在连接"
+                  title="正在连接"
+                ></span>
+                <button
+                  class="session-name"
+                  id="chatCurrentName"
+                  type="button"
+                  aria-label="查看完整会话状态"
+                  aria-haspopup="true"
+                  aria-expanded="false"
+                ></button>
+                <span class="chat-picker-kind" id="chatCurrentKind"></span>
+                <button
+                  id="chatModeToggle"
+                  class="chat-mode-toggle chat-icon-btn"
+                  type="button"
+                  aria-label="切换到终端模式"
+                  title="切换到终端模式"
+                  aria-pressed="false"
+                  hidden
+                ></button>
+                <button
+                  id="chatSideToggle"
+                  class="chat-icon-btn"
+                  type="button"
+                  aria-label="打开临时会话"
+                  title="打开临时会话"
+                  aria-pressed="false"
+                  hidden
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="18"
+                    height="18"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    aria-hidden="true"
+                  >
+                    <path d="M5 3v18M5 8c0 5 6 5 12 5m-4-4 4 4-4 4" />
+                  </svg>
+                </button>
+                <button
+                  id="chatSessionMore"
+                  class="chat-icon-btn"
+                  type="button"
+                  aria-label="会话操作"
+                  title="会话操作"
+                  aria-haspopup="menu"
+                  hidden
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="18"
+                    height="18"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <circle cx="5" cy="12" r="1.6" />
+                    <circle cx="12" cy="12" r="1.6" />
+                    <circle cx="19" cy="12" r="1.6" />
+                  </svg>
+                </button>
+                <button
+                  id="chatFilesToggle"
+                  class="chat-files-toggle chat-icon-btn"
+                  type="button"
+                  aria-label="展开会话文件"
+                  title="展开会话文件"
+                  aria-controls="sessionFilesPage"
+                  aria-expanded="false"
+                  disabled
+                >
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    aria-hidden="true"
+                  >
+                    <rect x="3" y="4" width="18" height="16" rx="3" />
+                    <path d="M15 4v16" />
+                  </svg>
+                </button>
+              </header>
+              <div
+                id="chatSideThread"
+                class="side-thread"
+                role="group"
+                aria-label="Codex 会话切换"
+                hidden
+              >
+                <div class="side-thread-controls">
+                  <button type="button" data-side="main" aria-pressed="true">主会话</button>
+                  <button type="button" data-side="side" aria-pressed="false">临时会话</button>
+                  <button
+                    type="button"
+                    data-side="fork"
+                    title="将临时会话 Fork 为独立会话"
+                    aria-label="将临时会话 Fork 为独立会话"
+                    hidden
+                  >
+                    Fork 为独立会话
+                  </button>
+                  <button type="button" data-side="close" class="side-thread-close">结束</button>
+                </div>
+                <p class="side-thread-error" role="status" hidden></p>
+              </div>
+              <section
+                id="shellTerminal"
+                class="shell-terminal"
+                aria-label="会话终端"
+                hidden
+              ></section>
+              <div
+                class="chat-connection"
+                id="connectionBanner"
+                role="status"
+                aria-live="polite"
+                hidden
+              ></div>
+              <div
+                class="chat-log"
+                id="chatLog"
+                data-loading="true"
+                aria-busy="true"
+                role="log"
+                aria-label="会话消息"
+              >
+                <!-- 这里只保留归档与连接说明；当前状态和操作统一位于输入框上沿。 -->
+                <div class="chat-status" id="chatStatus" hidden>
+                  <div
+                    class="chat-archived-notice"
+                    id="chatArchivedNotice"
+                    role="status"
+                    hidden
+                  ></div>
+                </div>
+              </div>
+              <!-- PTY 连接状态。原来它浮在终端画面上,终端删掉之后归会话页自己:
+               输入框在断线时会置灰,没有这一行就只是「忽然不能发消息了」。 -->
+              <!-- 输入卡片。
+               ⚠️ 它此前是由底栏(`#controlDeck` / `#deckRows`)在桌面档用
+               `display: contents` 把三层摊平、再靠 grid-area 重排出来的。底栏随网页
+               终端一起删掉之后,这张卡片必须是**它自己的一块结构** —— 会话页没有
+               输入框就等于废了。现在它直接就是那张网格,不再摊平任何中间层。
+               尺寸照 dsh 那张量:圆角 22px、底色 --control、上面一行输入框、
+               下面一行左边工具右边一颗圆形发送钮;那圈细线是 box-shadow 而不是
+               border(border 画出来会粗一档)。 -->
+              <div class="agent-startup" id="agentStartup" role="status" hidden></div>
+              <div id="attachmentList" class="attachment-list" aria-label="待发送附件" hidden></div>
+              <div id="chatGoal" class="chat-goal" hidden>
+                <button
+                  id="chatGoalSummary"
+                  class="chat-goal-summary"
+                  type="button"
+                  aria-label="查看完整 goal"
+                  aria-haspopup="dialog"
+                >
+                  <span class="chat-goal-prefix">goal:</span
+                  ><span id="chatGoalText" class="chat-goal-text"></span>
+                </button>
+                <span
+                  id="chatGoalState"
+                  class="chat-goal-state"
+                  role="status"
+                  aria-live="polite"
+                ></span>
+              </div>
+              <div id="chatControls" class="chat-controls" hidden>
+                <div class="chat-status-activity chat-control-row" aria-label="当前执行状态">
+                  <span data-status-slot="execution" class="chat-status-field"
+                    ><button
+                      id="chatExecutionAction"
+                      class="chat-execution"
+                      type="button"
+                      aria-label="Status"
+                      aria-expanded="false"
+                      aria-haspopup="true"
+                    >
+                      <span
+                        id="chatExecutionState"
+                        class="chat-execution-state"
+                        role="status"
+                        aria-live="polite"
+                      ></span></button
+                    ><span class="chat-status-separator" aria-hidden="true" hidden>·</span></span
+                  >
+                  <span data-status-slot="elapsed" class="chat-status-field"
+                    ><button
+                      id="chatElapsedAction"
+                      type="button"
+                      aria-label="Elapsed"
+                      aria-expanded="false"
+                      aria-haspopup="true"
+                    >
+                      <span id="chatExecutionElapsed" class="chat-execution-elapsed"></span></button
+                    ><span class="chat-status-separator" aria-hidden="true" hidden>·</span></span
+                  >
+                </div>
+                <div class="chat-status-hint-row">
+                  <button
+                    id="chatComposerError"
+                    class="operation-error"
+                    type="button"
+                    aria-live="assertive"
+                    aria-label="查看操作错误"
+                    aria-haspopup="true"
+                    aria-expanded="false"
+                    hidden
+                  ></button
+                  ><span class="chat-status-branch" aria-hidden="true">└</span
+                  ><button
+                    id="chatStatusHint"
+                    class="chat-status-hint"
+                    type="button"
+                    aria-label="查看活动详情"
+                    aria-haspopup="true"
+                    aria-expanded="false"
+                  ></button
+                  ><button
+                    id="chatMoveNativeDraft"
+                    class="chat-status-draft-action"
+                    type="button"
+                    hidden
+                  >
+                    移动到swift
+                  </button>
+                  <div
+                    id="chatQuestionSummary"
+                    class="chat-question-summary"
+                    aria-label="待回答问题"
+                    hidden
+                  ></div>
+                </div>
+                <div class="chat-status-line" role="group" aria-label="会话状态与操作">
+                  <div
+                    id="chatStatusScroll"
+                    class="chat-status-scroll"
+                    tabindex="0"
+                    aria-label="会话状态，可横向滚动"
+                  >
+                    <div class="chat-control-row" role="toolbar" aria-label="当前会话操作">
+                      <span data-status-slot="model" class="chat-status-field"
+                        ><button
+                          id="chatModelAction"
+                          class="chat-control-setting"
+                          type="button"
+                          aria-label="Model"
+                          aria-haspopup="menu"
+                        ></button
+                        ><span class="chat-status-separator" aria-hidden="true" hidden
+                          >·</span
+                        ></span
+                      >
+                      <span data-status-slot="effort" class="chat-status-field"
+                        ><button
+                          id="chatEffortAction"
+                          class="chat-control-setting"
+                          type="button"
+                          aria-label="Reasoning"
+                          aria-haspopup="menu"
+                        ></button
+                        ><span class="chat-status-separator" aria-hidden="true" hidden
+                          >·</span
+                        ></span
+                      >
+                      <span data-status-slot="identity" class="chat-status-field"
+                        ><button
+                          id="chatIdentityAction"
+                          class="chat-status-identity"
+                          type="button"
+                          aria-label="Account"
+                          aria-expanded="false"
+                          aria-haspopup="true"
+                        ></button
+                        ><span class="chat-status-separator" aria-hidden="true" hidden
+                          >·</span
+                        ></span
+                      >
+                      <span data-status-slot="quota" class="chat-status-field"
+                        ><button
+                          id="chatQuotaAction"
+                          class="chat-status-quota"
+                          type="button"
+                          aria-label="Usage"
+                          aria-expanded="false"
+                          aria-haspopup="true"
+                        ></button
+                        ><span class="chat-status-separator" aria-hidden="true" hidden
+                          >·</span
+                        ></span
+                      >
+                      <span data-status-slot="directory" class="chat-status-field" hidden
+                        ><button
+                          id="chatDirectoryAction"
+                          class="chat-status-directory"
+                          type="button"
+                          aria-label="Directory"
+                          aria-expanded="false"
+                          aria-haspopup="true"
+                        ></button
+                        ><span class="chat-status-separator" aria-hidden="true" hidden
+                          >·</span
+                        ></span
+                      >
+                      <span data-status-slot="context" class="chat-status-field" hidden
+                        ><button
+                          id="chatContextAction"
+                          class="chat-status-context"
+                          type="button"
+                          aria-label="Context"
+                          aria-expanded="false"
+                          aria-haspopup="true"
+                        ></button
+                        ><span class="chat-status-separator" aria-hidden="true" hidden
+                          >·</span
+                        ></span
+                      >
+                    </div>
+                  </div>
+                  <div class="chat-status-fixed chat-status-details">
+                    <button
+                      id="chatInterruptDesktop"
+                      class="chat-status-interrupt"
+                      type="button"
+                      aria-label="中断当前轮次"
+                      title="中断当前轮次"
+                      disabled
+                    >
+                      Esc
+                    </button>
+                  </div>
+                </div>
+                <p
+                  id="chatStatusNotice"
+                  class="chat-status-notice visually-hidden"
+                  role="status"
+                  aria-live="polite"
+                  hidden
+                ></p>
+              </div>
+              <div
+                id="chatPendingInputs"
+                class="chat-pending-inputs"
+                role="region"
+                aria-label="Codex 待发送消息"
+                hidden
+              ></div>
+              <div
+                class="chat-inline-question chat-question-panel"
+                id="chatInlineQuestion"
+                role="group"
+                aria-label="Agent 提问"
+                hidden
+              ></div>
+              <div class="chat-input" id="chatInput">
+                <textarea
+                  class="chat-input-field"
+                  id="commandInput"
+                  aria-label="发送消息"
+                  rows="2"
+                  enterkeyhint="enter"
+                  aria-autocomplete="list"
+                  aria-controls="slashCommands"
+                  aria-expanded="false"
+                  disabled
+                ></textarea>
+                <button
+                  class="chat-input-attach"
+                  id="attachButton"
+                  type="button"
+                  title="添加附件"
+                  aria-label="添加附件"
+                >
+                  <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+                    <path
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.3"
+                      stroke-linecap="round"
+                      d="M10.9 5.1 5.8 10.2a1.7 1.7 0 0 0 2.4 2.4l5.1-5.1a3.2 3.2 0 0 0-4.5-4.5L3.4 8.4a4.7 4.7 0 0 0 6.6 6.6"
+                    />
+                  </svg>
+                </button>
+                <input id="attachInput" type="file" multiple hidden />
+                <div
+                  id="slashCommands"
+                  class="slash-commands"
+                  role="listbox"
+                  aria-label="命令候选"
+                  hidden
+                ></div>
+                <!-- 投递反馈位于上沿；聊天只显示原生存档中的消息。 -->
+                <div class="chat-input-send-area" id="sendHistoryZone">
+                  <button
+                    class="chat-input-send"
+                    id="sendButton"
+                    type="button"
+                    disabled
+                    title="发送消息"
+                    aria-label="发送消息"
+                    aria-describedby="sendHistoryHint"
+                  >
+                    <svg
+                      class="send-stop"
+                      viewBox="0 0 16 16"
+                      width="16"
+                      height="16"
+                      aria-hidden="true"
+                    >
+                      <rect x="3" y="3" width="10" height="10" rx="1.5" fill="currentColor" />
+                    </svg>
+                    <svg
+                      class="send-arrow"
+                      viewBox="0 0 16 16"
+                      width="16"
+                      height="16"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M8 13V3.6M8 3.2 3.8 7.4M8 3.2l4.2 4.2"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.6"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                  </button>
+                  <span id="sendHistoryHint" class="send-word"
+                    >触摸时，在发送按钮所在区域上滑查看上一条消息，下滑查看下一条消息。</span
+                  >
+                </div>
+              </div>
+            </div>
+            <section id="sessionFilesPage" class="session-files-page" hidden aria-label="会话文件">
+              <div
+                class="session-files-resizer"
+                id="sessionFilesResizer"
+                role="separator"
+                aria-label="拖动调整文件面板宽度"
+                aria-orientation="vertical"
+              ></div>
+              <header class="session-files-head">
+                <button
+                  id="chatFilesSidebarToggle"
+                  class="chat-files-action"
+                  type="button"
+                  aria-label="会话列表"
+                  title="会话列表"
+                >
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    aria-hidden="true"
+                  >
+                    <rect x="3" y="4" width="18" height="16" rx="3" />
+                    <path d="M9 4v16" />
+                  </svg></button
+                ><button
+                  id="chatFilesListBack"
+                  class="chat-files-action"
+                  type="button"
+                  aria-label="返回文件列表"
+                  title="返回文件列表"
+                  hidden
+                >
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    aria-hidden="true"
+                  >
+                    <path d="m14 6-6 6 6 6M8 12h12" />
+                  </svg></button
+                ><strong>会话文件</strong
+                ><button
+                  id="chatFilesMaximize"
+                  class="chat-files-action"
+                  type="button"
+                  aria-pressed="false"
+                  aria-label="最大化"
+                  title="最大化"
+                >
+                  <svg
+                    class="files-max-icon"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7" /></svg
+                  ><svg
+                    class="files-restore-icon"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M20 10h-6V4M14 10l7-7M4 14h6v6M10 14l-7 7" />
+                  </svg>
+                </button>
+              </header>
+              <input
+                id="docSearch"
+                class="doc-search"
+                type="search"
+                placeholder="搜索文件"
+                aria-label="按路径搜索文件"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <div id="sessionFilesList" class="session-files-list"></div>
+              <section id="projectView" class="project-view" hidden aria-label="文档"></section>
+              <section
+                id="sessionFileViewer"
+                class="session-file-viewer"
+                hidden
+                aria-label="文件预览"
+              >
+                <div id="sessionFilePath" class="session-file-path"></div>
+                <p id="sessionFileNotice" role="status"></p>
+                <pre id="sessionFileText" tabindex="0"></pre>
+                <img id="sessionFileImage" alt="文件预览" hidden />
+                <button id="sessionFileMore" type="button" hidden>继续加载</button>
+              </section>
+            </section>
+          </div>
+          <div class="chat-picker-scrim" id="chatPickerScrim" hidden></div>
+        </div>
+      </main>
+    </div>
+
+    <dialog id="authDialog" class="dialog-card" data-static>
+      <form method="dialog" id="authForm">
+        <div class="dialog-kicker">swift</div>
+        <h2>连接你的会话</h2>
+        <p>输入此设备上的访问令牌。验证成功后，本浏览器会记住它。</p>
+        <label
+          >访问令牌<input id="tokenInput" type="password" autocomplete="current-password" required
+        /></label>
+        <div class="dialog-actions"><button class="primary" value="default">连接</button></div>
+        <div class="form-error" id="authError"></div>
+      </form>
+    </dialog>
+
+    <!-- 聊天页自己的对话框:文本输入、确认、目录选择共用这一个壳,
+       内容按用途现搭。浏览器原生的 prompt/confirm 与这套配色完全不搭。 -->
+    <dialog class="chat-dialog" id="chatDialog">
+      <form method="dialog" class="chat-dialog-form" id="chatDialogForm">
+        <h2 class="chat-dialog-title" id="chatDialogTitle"></h2>
+        <div class="chat-dialog-body" id="chatDialogBody"></div>
+        <p class="chat-dialog-error" id="chatDialogError" hidden></p>
+        <div class="chat-dialog-actions">
+          <button type="button" class="chat-btn" id="chatDialogCancel">取消</button>
+          <button type="button" class="chat-btn" id="chatDialogExtra" hidden></button>
+          <button type="button" class="chat-btn primary" id="chatDialogConfirm">确定</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- APP_SCRIPTS_START -->
+    <script src="provider-capabilities.js?v=__ASSET_VERSION__"></script>
+    <script src="renderers/registry.js?v=__ASSET_VERSION__"></script>
+    <script src="renderers/common.js?v=__ASSET_VERSION__"></script>
+    <script src="codex-question-reply.js?v=__ASSET_VERSION__"></script>
+    <script src="renderers/codex.js?v=__ASSET_VERSION__"></script>
+    <script src="renderers/claude.js?v=__ASSET_VERSION__"></script>
+    <script src="renderers/pi.js?v=__ASSET_VERSION__"></script>
+    <script src="renderers/omp.js?v=__ASSET_VERSION__"></script>
+    <script src="renderers/omo.js?v=__ASSET_VERSION__"></script>
+    <script src="renderers/gjc.js?v=__ASSET_VERSION__"></script>
+    <script src="renderers/opencode.js?v=__ASSET_VERSION__"></script>
+    <script src="renderers/devin.js?v=__ASSET_VERSION__"></script>
+    <script src="core/api.js?v=__ASSET_VERSION__"></script>
+    <script src="core/settings-save.js?v=__ASSET_VERSION__"></script>
+    <script src="core/connection-state.js?v=__ASSET_VERSION__"></script>
+    <script src="core/socket.js?v=__ASSET_VERSION__"></script>
+    <script src="core/connection-feedback.js?v=__ASSET_VERSION__"></script>
+    <script src="core/store.js?v=__ASSET_VERSION__"></script>
+    <script src="core/boot.js?v=__ASSET_VERSION__"></script>
+    <script src="session-sync.js?v=__ASSET_VERSION__"></script>
+    <script src="core/replica.js?v=__ASSET_VERSION__"></script>
+    <script src="core/sync.js?v=__ASSET_VERSION__"></script>
+    <script src="ui-model.js?v=__ASSET_VERSION__"></script>
+    <script src="ansi.js?v=__ASSET_VERSION__"></script>
+    <script src="status-facts.js?v=__ASSET_VERSION__"></script>
+    <script src="terminal-lines.js?v=__ASSET_VERSION__"></script>
+    <script src="vendor/katex/katex.min.js?v=__ASSET_VERSION__"></script>
+    <script src="markdown.js?v=__ASSET_VERSION__"></script>
+    <script src="core/off-thread.js?v=__ASSET_VERSION__"></script>
+    <script src="files/code-view.js?v=__ASSET_VERSION__"></script>
+    <script src="files/file-types.js?v=__ASSET_VERSION__"></script>
+    <script src="files/media-view.js?v=__ASSET_VERSION__"></script>
+    <script src="files/doc-view.js?v=__ASSET_VERSION__"></script>
+    <script src="files/html-view.js?v=__ASSET_VERSION__"></script>
+    <script src="nav/tab-drag.js?v=__ASSET_VERSION__"></script>
+    <script src="nav/page-drag.js?v=__ASSET_VERSION__"></script>
+    <script src="nav/swipe.js?v=__ASSET_VERSION__"></script>
+    <script src="files/image-menu.js?v=__ASSET_VERSION__"></script>
+    <script src="chat/drafts.js?v=__ASSET_VERSION__"></script>
+    <script src="chat/composer.js?v=__ASSET_VERSION__"></script>
+    <script src="chat/message-edit.js?v=__ASSET_VERSION__"></script>
+    <script src="chat/session-cache.js?v=__ASSET_VERSION__"></script>
+    <script src="chat/input-history.js?v=__ASSET_VERSION__"></script>
+    <script src="chat/scroll.js?v=__ASSET_VERSION__"></script>
+    <script src="chat/message-navigation.js?v=__ASSET_VERSION__"></script>
+    <script src="chat/shortcuts.js?v=__ASSET_VERSION__"></script>
+    <script src="chat/session-actions.js?v=__ASSET_VERSION__"></script>
+    <script src="chat/goal.js?v=__ASSET_VERSION__"></script>
+    <script src="native-status.js?v=__ASSET_VERSION__"></script>
+    <script src="chat/status-model.js?v=__ASSET_VERSION__"></script>
+    <script src="chat/status.js?v=__ASSET_VERSION__"></script>
+    <script src="chat/native-status-view.js?v=__ASSET_VERSION__"></script>
+    <script src="chat/status-read.js?v=__ASSET_VERSION__"></script>
+    <script src="chat/statusbar.js?v=__ASSET_VERSION__"></script>
+    <script src="chat/tool-presentation.js?v=__ASSET_VERSION__"></script>
+    <script src="chat/tool-view.js?v=__ASSET_VERSION__"></script>
+    <script src="chat/container.js?v=__ASSET_VERSION__"></script>
+    <script src="chat/terminal-keyboard.js?v=__ASSET_VERSION__"></script>
+    <script src="chat/terminal-state.js?v=__ASSET_VERSION__"></script>
+    <script src="chat/terminal-state-renderer.js?v=__ASSET_VERSION__"></script>
+    <script src="chat/terminal-renderer.js?v=__ASSET_VERSION__"></script>
+    <script src="chat/terminal-channel.js?v=__ASSET_VERSION__"></script>
+    <script src="chat/shell-terminal.js?v=__ASSET_VERSION__"></script>
+    <script src="chat/side-thread.js?v=__ASSET_VERSION__"></script>
+    <script src="vendor/deepseek-harness/directory-node.js?v=__ASSET_VERSION__"></script>
+    <script src="files/markdown-layout.js?v=__ASSET_VERSION__"></script>
+    <script src="files/code-editor-assets.js?v=__ASSET_VERSION__"></script>
+    <script src="files/code-editor.js?v=__ASSET_VERSION__"></script>
+    <script src="files/workspace.js?v=__ASSET_VERSION__"></script>
+    <script src="files/shell.js?v=__ASSET_VERSION__"></script>
+    <script src="nav/sidebar.js?v=__ASSET_VERSION__"></script>
+    <script src="nav/space-actions.js?v=__ASSET_VERSION__"></script>
+    <script src="nav/native-tab-drag.js?v=__ASSET_VERSION__"></script>
+    <script src="nav/session-fork.js?v=__ASSET_VERSION__"></script>
+    <script src="nav/herdr-shell.js?v=__ASSET_VERSION__"></script>
+    <script src="nav/herdr-context.js?v=__ASSET_VERSION__"></script>
+    <script src="chat/agent-settings.js?v=__ASSET_VERSION__"></script>
+    <script src="diagrams.js?v=__ASSET_VERSION__"></script>
+    <script src="visual-viewport.js?v=__ASSET_VERSION__"></script>
+    <script src="slash-commands.js?v=__ASSET_VERSION__"></script>
+    <script src="chat-images.js?v=__ASSET_VERSION__"></script>
+    <script src="frontend-updates.js?v=__ASSET_VERSION__"></script>
+    <script src="server-updates.js?v=__ASSET_VERSION__"></script>
+    <script src="dialogs.js?v=__ASSET_VERSION__"></script>
+    <script src="popovers.js?v=__ASSET_VERSION__"></script>
+    <script src="chat/question-interaction.js?v=__ASSET_VERSION__"></script>
+    <script src="chat/command-interaction.js?v=__ASSET_VERSION__"></script>
+    <script src="chat/command-menu.js?v=__ASSET_VERSION__"></script>
+    <script src="connection-switcher.js?v=__ASSET_VERSION__"></script>
+    <script src="app.js?v=__ASSET_VERSION__"></script>
+    <!-- APP_SCRIPTS_END -->
+  </body>
+</html>

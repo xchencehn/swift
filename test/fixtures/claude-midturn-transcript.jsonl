@@ -1,0 +1,8 @@
+{"type": "user", "uuid": "request", "timestamp": "2026-09-19T20:25:02.112Z", "message": {"role": "user", "content": "请检查这个项目。"}}
+{"type": "queue-operation", "operation": "enqueue", "timestamp": "2026-09-19T20:33:45.271Z", "sessionId": "fixture-session", "content": "请把审查表写入隔离目录。"}
+{"type": "queue-operation", "operation": "remove", "timestamp": "2026-09-19T20:33:51.794Z", "sessionId": "fixture-session", "content": "请把审查表写入隔离目录。", "reason": "absorbed_mid_turn"}
+{"type": "assistant", "uuid": "tool-call", "timestamp": "2026-09-19T20:33:51.665Z", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "read-tool", "name": "Bash", "input": {"command": "pwd"}}]}}
+{"type": "user", "uuid": "tool-result", "timestamp": "2026-09-19T20:33:51.786Z", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "read-tool", "content": "/fixture/project"}]}}
+{"parentUuid": "tool-result", "isSidechain": false, "attachment": {"type": "queued_command", "prompt": "请把审查表写入隔离目录。", "source_uuid": "queued-source", "commandMode": "prompt", "origin": {"kind": "human"}, "timestamp": "2026-09-19T20:33:45.270Z"}, "type": "attachment", "uuid": "queued-attachment", "timestamp": "2026-09-19T20:33:45.270Z", "session_id": "fixture-session", "userType": "external", "entrypoint": "cli", "cwd": "/fixture/project", "sessionId": "fixture-session", "version": "2.1.258", "gitBranch": "master"}
+{"type": "assistant", "uuid": "final", "timestamp": "2026-09-19T20:56:28.313Z", "message": {"role": "assistant", "content": [{"type": "text", "text": "审查完成，审查表已写入隔离目录。"}], "stop_reason": "end_turn"}}
+{"type": "system", "subtype": "away_summary", "uuid": "recap", "timestamp": "2026-09-19T20:59:44.920Z", "content": "已完成本轮审查。"}

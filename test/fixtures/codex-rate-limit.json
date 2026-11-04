@@ -1,0 +1,12 @@
+[
+  {
+    "columns": 140,
+    "source": "Codex 0.165.0 isolated local Responses fixture, 95 percent quota header",
+    "ansi": "  \u001b[0m\u001b[1mApproaching rate limits\u001b[0m\n  \u001b[0m\u001b[2mSwitch to gpt-6-luna for lower credit usage?\u001b[0m\n \n \n\u001b[0m\u001b[1m\u001b[7m› 1. Switch to gpt-6-luna                   \u001b[0m\u001b[7mFast and affordable model for easier tasks.\u001b[0m\u001b[1m\u001b[7m                          \u001b[0m\n  2. Keep current model\n  3. Keep current model (never show again)  \u001b[0m\u001b[2mHide future rate limit reminders about switching models\u001b[0m\n \n  \u001b[0m\u001b[1menter\u001b[0m\u001b[2m select · \u001b[0m\u001b[1mesc\u001b[0m\u001b[2m back                                                                                        \u001b[0m"
+  },
+  {
+    "columns": 45,
+    "source": "Codex 0.165.0 isolated local Responses fixture, 95 percent quota header",
+    "ansi": "  \u001b[0m\u001b[1mApproaching rate limits\u001b[0m\n  \u001b[0m\u001b[2mSwitch to gpt-6-luna for lower credit\u001b[0m\n  \u001b[0m\u001b[2musage?\u001b[0m\n \n \n\u001b[0m\u001b[1m\u001b[7m› 1. Switch to gpt-6-luna                   \u001b[0m\n  2. Keep current model\n  3. Keep current model (never show again)\n \n  \u001b[0m\u001b[1menter\u001b[0m\u001b[2m select · \u001b[0m\u001b[1mesc\u001b[0m\u001b[2m back                   \u001b[0m"
+  }
+]

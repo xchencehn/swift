@@ -1,0 +1,30 @@
+name: 问题报告
+description: 提交可复现的软件问题。
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Swift 版本与运行平台
+      placeholder: 服务器版本、客户端版本、操作系统
+    validations:
+      required: true
+  - type: dropdown
+    id: connection
+    attributes:
+      label: 连接方式
+      options:
+        - 同一系统
+        - Windows / WSL
+        - 局域网
+        - 产品外的网络或隧道
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 复现步骤、预期与实际结果
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 脱敏日志或截图
+      description: 请移除 token、凭据、个人路径与私人会话内容。安全问题请按 SECURITY.md 私下报告。

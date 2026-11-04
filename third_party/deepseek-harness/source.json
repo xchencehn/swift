@@ -1,0 +1,15 @@
+{
+  "repository": "https://github.com/deepseek-ai/deepseek-harness",
+  "revision": "22ddee3792402c3e70ec5f86a63c3e3e895a2f60",
+  "license": "MIT",
+  "files": {
+    "packages/client/ui-sidebar-files/src/client/FilesBody.tsx": "52ac73a7a921b9702096331c29dd4a8b7f559da6e9d92ea3a225a62f826f52ee",
+    "packages/client/ui-sidebar-files/src/client/FilesBody.module.css": "616865059eecb4946e826a6d568ab3fd348654a6c3b110328dae94bdc49b9d72",
+    "packages/client/ui-sidebar-files/src/client/directory-node.ts": "3da099ed59762f66393727b59d04c9462114fa8ea77d21bdf53e8e33c2f93194",
+    "packages/client/ui-sidebar-files/src/client/face.ts": "0ff8c62e4cb940a33afa811838d2c15e57d02f9a44135404c5f0c95106d7594c",
+    "packages/client/ui-sidebar-files/src/client/store.ts": "e799ba4a770e56670360c485f79c2df8bbc158fc4525720a543dafe5167f410e",
+    "packages/api/workspace-files/src/index.ts": "3c6fd2b5b7d7e1dac70780f23199efd76d99f98d07cf8f82a89969628adcf05d",
+    "packages/api/workspace-files/src/types.ts": "da12283c56ae3eee774dd8d2ae35ec512131029ba273ae955e2fb23e8bc3ada0",
+    "packages/fs/fs-local/src/fsio.ts": "afbc5cb2d6e9b98b564b03724aeee79f63b2672c10be5a2ac3787a7665946244"
+  }
+}

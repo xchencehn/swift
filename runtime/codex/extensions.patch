@@ -1,0 +1,751 @@
+diff --git a/codex-rs/config/src/types.rs b/codex-rs/config/src/types.rs
+index a42d709777aa2242c5b4a45ba8476edbb95a139c..ff314ea22db58660088a1854269edf3d7c663506 100644
+--- a/codex-rs/config/src/types.rs
++++ b/codex-rs/config/src/types.rs
+@@ -956,6 +956,10 @@ pub struct Tui {
+     #[serde(default = "default_true")]
+     pub status_line_use_colors: bool,
+ 
++    /// Account email to short display name mapping for the `account` status line item.
++    #[serde(default)]
++    pub account_aliases: BTreeMap<String, String>,
++
+     /// Ordered list of terminal title item identifiers.
+     ///
+     /// When set, the TUI renders the selected items into the terminal window/tab title.
+diff --git a/codex-rs/core/config.schema.json b/codex-rs/core/config.schema.json
+index cce71e46c17084a76d7d7ad7945145f3d4d1a256..cf38631be007925ac2eb37a7feeda7aceb73a24f 100644
+--- a/codex-rs/core/config.schema.json
++++ b/codex-rs/core/config.schema.json
+@@ -4811,6 +4811,14 @@
+       "additionalProperties": false,
+       "description": "Collection of settings that are specific to the TUI.",
+       "properties": {
++        "account_aliases": {
++          "additionalProperties": {
++            "type": "string"
++          },
++          "default": {},
++          "description": "Account email to short display name mapping for the `account` status line item.",
++          "type": "object"
++        },
+         "agents_overview_grouping": {
+           "allOf": [
+             {
+diff --git a/codex-rs/core/src/config/config_tests.rs b/codex-rs/core/src/config/config_tests.rs
+index c45fb2b0c3f1120e1a3c5cfbaf1a7d38c2d974ab..b1490085e66ecd6bf82a59f386696b027c573398 100644
+--- a/codex-rs/core/src/config/config_tests.rs
++++ b/codex-rs/core/src/config/config_tests.rs
+@@ -1277,6 +1277,7 @@ fn config_toml_deserializes_model_availability_nux() {
+             alternate_screen: AltScreenMode::default(),
+             status_line: None,
+             status_line_use_colors: true,
++            account_aliases: BTreeMap::new(),
+             terminal_title: None,
+             theme: None,
+             pet: None,
+@@ -4523,6 +4524,7 @@ fn tui_config_missing_notifications_field_defaults_to_enabled() {
+             alternate_screen: AltScreenMode::Auto,
+             status_line: None,
+             status_line_use_colors: true,
++            account_aliases: BTreeMap::new(),
+             terminal_title: None,
+             theme: None,
+             pet: None,
+diff --git a/codex-rs/core/src/config/mod.rs b/codex-rs/core/src/config/mod.rs
+index 3f6c1cc9e14c5d78542cdd99d6daa97e1e9957c5..29e99e9a601b53e6eafeb2bcc7a2f4628ff65e1b 100644
+--- a/codex-rs/core/src/config/mod.rs
++++ b/codex-rs/core/src/config/mod.rs
+@@ -855,6 +855,9 @@ pub struct Config {
+     /// Whether to color status line items with colors from the active syntax theme.
+     pub tui_status_line_use_colors: bool,
+ 
++    /// Account email to short display name mapping for the TUI status line.
++    pub tui_account_aliases: BTreeMap<String, String>,
++
+     /// Ordered list of terminal title item identifiers for the TUI.
+     ///
+     /// When unset, the TUI defaults to: `activity` and `project`.
+@@ -4729,6 +4732,11 @@ impl Config {
+                 .as_ref()
+                 .map(|t| t.status_line_use_colors)
+                 .unwrap_or(true),
++            tui_account_aliases: cfg
++                .tui
++                .as_ref()
++                .map(|t| t.account_aliases.clone())
++                .unwrap_or_default(),
+             tui_terminal_title: cfg.tui.as_ref().and_then(|t| t.terminal_title.clone()),
+             tui_theme: cfg.tui.as_ref().and_then(|t| t.theme.clone()),
+             tui_pet: cfg.tui.as_ref().and_then(|t| t.pet.clone()),
+diff --git a/codex-rs/thread-manager-sample/src/main.rs b/codex-rs/thread-manager-sample/src/main.rs
+index af50bd5f44f4e2256e6e14e1209738407bcb7b9e..3f262796f586cc22c925a3c67502eb369bcec320 100644
+--- a/codex-rs/thread-manager-sample/src/main.rs
++++ b/codex-rs/thread-manager-sample/src/main.rs
+@@ -301,6 +301,7 @@ async fn new_config(
+         tui_alternate_screen: AltScreenMode::Auto,
+         tui_status_line: None,
+         tui_status_line_use_colors: true,
++        tui_account_aliases: Default::default(),
+         tui_terminal_title: None,
+         tui_theme: None,
+         tui_raw_output_mode: false,
+diff --git a/codex-rs/tui/src/bottom_pane/status_line_setup.rs b/codex-rs/tui/src/bottom_pane/status_line_setup.rs
+index 9567424fbb9b79eba31388a1e1449c500d36fb59..eeb8c0c04c6b8338b38b87f0f8cf1302e99a6d41 100644
+--- a/codex-rs/tui/src/bottom_pane/status_line_setup.rs
++++ b/codex-rs/tui/src/bottom_pane/status_line_setup.rs
+@@ -19,6 +19,7 @@
+ //! - Usage limits (primary, secondary)
+ //! - Session info (thread title, thread ID, tokens used)
+ //! - Application version
++//! - Current account short name
+ 
+ use ratatui::buffer::Buffer;
+ use ratatui::layout::Rect;
+@@ -158,6 +159,9 @@ pub(crate) enum StatusLineItem {
+ 
+     /// Latest checklist task progress from `update_plan` (if available).
+     TaskProgress,
++
++    /// Short name of the account used by the connected server.
++    Account,
+ }
+ 
+ impl StatusLineItem {
+@@ -219,6 +223,7 @@ impl StatusLineItem {
+             StatusLineItem::TaskProgress => {
+                 "Latest task progress from update_plan (omitted until available)"
+             }
++            StatusLineItem::Account => "Current account short name (omitted until available)",
+         }
+     }
+ 
+@@ -255,6 +260,7 @@ impl StatusLineItem {
+             StatusLineItem::ThreadTitle => StatusSurfacePreviewItem::ThreadTitle,
+             StatusLineItem::WorkspaceHeadline => StatusSurfacePreviewItem::WorkspaceHeadline,
+             StatusLineItem::TaskProgress => StatusSurfacePreviewItem::TaskProgress,
++            StatusLineItem::Account => StatusSurfacePreviewItem::Account,
+         }
+     }
+ }
+diff --git a/codex-rs/tui/src/bottom_pane/status_line_style.rs b/codex-rs/tui/src/bottom_pane/status_line_style.rs
+index 6ef9003c5887ed3cf8f614d3079f95fa96e61ae8..7f08bc50c8362b258fec398b40922b987b5c5fee 100644
+--- a/codex-rs/tui/src/bottom_pane/status_line_style.rs
++++ b/codex-rs/tui/src/bottom_pane/status_line_style.rs
+@@ -53,9 +53,10 @@ impl StatusLineAccent {
+             | StatusLineItem::ThreadCredits
+             | StatusLineItem::EstimatedThreadCost => Self::Usage,
+             StatusLineItem::FiveHourLimit | StatusLineItem::WeeklyLimit => Self::Limit,
+-            StatusLineItem::CodexVersion | StatusLineItem::Hostname | StatusLineItem::SessionId => {
+-                Self::Metadata
+-            }
++            StatusLineItem::CodexVersion
++            | StatusLineItem::Hostname
++            | StatusLineItem::SessionId
++            | StatusLineItem::Account => Self::Metadata,
+             StatusLineItem::FastMode | StatusLineItem::Daybreak | StatusLineItem::RawOutput => {
+                 Self::Mode
+             }
+diff --git a/codex-rs/tui/src/bottom_pane/status_surface_preview.rs b/codex-rs/tui/src/bottom_pane/status_surface_preview.rs
+index 7389236c07c69377232cbcb097e812f1af5a0484..cfea5fc8e8505d661821d584855ace388a5638a1 100644
+--- a/codex-rs/tui/src/bottom_pane/status_surface_preview.rs
++++ b/codex-rs/tui/src/bottom_pane/status_surface_preview.rs
+@@ -41,6 +41,7 @@ pub(crate) enum StatusSurfacePreviewItem {
+     ModelWithReasoning,
+     Reasoning,
+     TaskProgress,
++    Account,
+ }
+ 
+ impl StatusSurfacePreviewItem {
+@@ -79,6 +80,7 @@ impl StatusSurfacePreviewItem {
+             StatusSurfacePreviewItem::ModelWithReasoning => "gpt-5.2-codex medium",
+             StatusSurfacePreviewItem::Reasoning => "medium",
+             StatusSurfacePreviewItem::TaskProgress => "Tasks 0/0",
++            StatusSurfacePreviewItem::Account => "account",
+         }
+     }
+ 
+@@ -117,6 +119,7 @@ impl StatusSurfacePreviewItem {
+             Self::ModelWithReasoning,
+             Self::Reasoning,
+             Self::TaskProgress,
++            Self::Account,
+         ]
+         .into_iter()
+     }
+diff --git a/codex-rs/tui/src/chatwidget/settings.rs b/codex-rs/tui/src/chatwidget/settings.rs
+index 767548773f4b4cfbe5ed7c7bae76c7879b19b0f7..ac9ce1063509d97775901327fe8f7546b0dfa50d 100644
+--- a/codex-rs/tui/src/chatwidget/settings.rs
++++ b/codex-rs/tui/src/chatwidget/settings.rs
+@@ -218,6 +218,7 @@ impl ChatWidget {
+         {
+             *email = current_email;
+         }
++        self.refresh_status_surfaces();
+     }
+ 
+     pub(crate) fn current_plan_type(&self) -> Option<PlanType> {
+diff --git a/codex-rs/tui/src/chatwidget/slash_dispatch.rs b/codex-rs/tui/src/chatwidget/slash_dispatch.rs
+index e9ea6e42fec43479cba9ca940d4516a8151219b3..484aacd0e72b6e090ff3b0fc20886b7df56b54f8 100644
+--- a/codex-rs/tui/src/chatwidget/slash_dispatch.rs
++++ b/codex-rs/tui/src/chatwidget/slash_dispatch.rs
+@@ -312,6 +312,31 @@ impl ChatWidget {
+             SlashCommand::Fork => {
+                 self.show_session_checkout_picker(ManagedWorktreeMode::Fork, /*name*/ None);
+             }
++            SlashCommand::Hfork => {
++                let Some(thread_id) = self.thread_id else {
++                    self.add_error_message(
++                        "Session is still starting; try /hfork again in a moment.".to_string(),
++                    );
++                    return;
++                };
++                if self
++                    .remote_connection
++                    .as_ref()
++                    .is_some_and(|connection| !connection.is_local_daemon)
++                {
++                    self.add_error_message(
++                        "/hfork requires a local Codex session inside Herdr.".to_string(),
++                    );
++                    return;
++                }
++                match crate::herdr_fork::start(thread_id, self.app_event_tx.clone()) {
++                    Ok(()) => self.add_info_message(
++                        "Forking into a Herdr pane on the right...".to_string(),
++                        None,
++                    ),
++                    Err(message) => self.add_error_message(message),
++                }
++            }
+             SlashCommand::Worktree => {
+                 self.show_managed_worktree_picker();
+             }
+@@ -1308,6 +1333,7 @@ impl ChatWidget {
+             | SlashCommand::Vim
+             | SlashCommand::Daybreak
+             | SlashCommand::Diff
++            | SlashCommand::Hfork
+             | SlashCommand::App
+             | SlashCommand::Rename
+             | SlashCommand::Voice
+diff --git a/codex-rs/tui/src/chatwidget/status_surfaces.rs b/codex-rs/tui/src/chatwidget/status_surfaces.rs
+index d7340e54379c772214146f74435ee437fa22d8b0..32980ffd761c2b026e4f0e4645f1d3208df26cdf 100644
+--- a/codex-rs/tui/src/chatwidget/status_surfaces.rs
++++ b/codex-rs/tui/src/chatwidget/status_surfaces.rs
+@@ -849,6 +849,10 @@ impl ChatWidget {
+                 .or_else(|| self.thread_id.map(|id| id.to_string())),
+             StatusLineItem::WorkspaceHeadline => self.status_line_workspace_headline.clone(),
+             StatusLineItem::TaskProgress => self.terminal_title_task_progress(),
++            StatusLineItem::Account => self
++                .status_account_display
++                .as_ref()
++                .and_then(|account| account.short_name(&self.local_settings.tui.account_aliases)),
+         }
+     }
+ 
+@@ -897,6 +901,7 @@ impl ChatWidget {
+             StatusSurfacePreviewItem::Model => StatusLineItem::ModelName,
+             StatusSurfacePreviewItem::ModelWithReasoning => StatusLineItem::ModelWithReasoning,
+             StatusSurfacePreviewItem::Reasoning => StatusLineItem::Reasoning,
++            StatusSurfacePreviewItem::Account => StatusLineItem::Account,
+         };
+         self.status_line_value_for_item(status_line_item)
+     }
+diff --git a/codex-rs/tui/src/chatwidget/tests/slash_commands.rs b/codex-rs/tui/src/chatwidget/tests/slash_commands.rs
+index 900ad18062a721a4a393b84d36c52c7124f71c6e..52ae654e5766b0788077187802b0eb035cbf8b45 100644
+--- a/codex-rs/tui/src/chatwidget/tests/slash_commands.rs
++++ b/codex-rs/tui/src/chatwidget/tests/slash_commands.rs
+@@ -3282,6 +3282,42 @@ async fn slash_fork_requests_current_fork() {
+     );
+ }
+ 
++#[tokio::test]
++async fn slash_hfork_without_thread_never_submits_model_work() {
++    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
++    chat.thread_id = None;
++    chat.dispatch_command(SlashCommand::Hfork);
++    assert!(op_rx.try_recv().is_err());
++    let cells = drain_insert_history_transcript(&mut rx);
++    let rendered = cells
++        .iter()
++        .map(|lines| lines_to_single_string(lines))
++        .collect::<Vec<_>>()
++        .join("\n");
++    assert!(rendered.contains("try /hfork again"));
++}
++
++#[tokio::test]
++async fn slash_hfork_rejects_remote_server_without_model_work() {
++    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
++    chat.thread_id = Some(ThreadId::new());
++    chat.remote_connection = Some(crate::status::remote_connection::RemoteConnectionStatus {
++        address: "ws://fixture.invalid".to_string(),
++        version: "0.163.0".to_string(),
++        is_local_daemon: false,
++        is_managed_daemon: false,
++    });
++    chat.dispatch_command(SlashCommand::Hfork);
++    assert!(op_rx.try_recv().is_err());
++    let cells = drain_insert_history_transcript(&mut rx);
++    let rendered = cells
++        .iter()
++        .map(|lines| lines_to_single_string(lines))
++        .collect::<Vec<_>>()
++        .join("\n");
++    assert!(rendered.contains("requires a local Codex session"));
++}
++
+ #[tokio::test]
+ async fn slash_fork_with_name_requests_named_fork() {
+     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+diff --git a/codex-rs/tui/src/chatwidget/tests/status_and_layout.rs b/codex-rs/tui/src/chatwidget/tests/status_and_layout.rs
+index 65d7739959567951eccb46b54ed995ecc342ba60..1e8730ff21b096512742493b069886281dcde503 100644
+--- a/codex-rs/tui/src/chatwidget/tests/status_and_layout.rs
++++ b/codex-rs/tui/src/chatwidget/tests/status_and_layout.rs
+@@ -321,6 +321,71 @@ async fn status_line_git_summary_items_render_values() {
+     );
+ }
+ 
++#[tokio::test]
++async fn status_line_account_refreshes_from_live_account_updates() {
++    let (mut chat, _rx, _ops) = make_chatwidget_manual(/*model_override*/ None).await;
++    chat.local_settings.tui.status_line = Some(vec!["account".to_string()]);
++    chat.local_settings.tui.account_aliases = [
++        ("first@example.com".to_string(), "one".to_string()),
++        ("second@example.com".to_string(), "two".to_string()),
++    ]
++    .into_iter()
++    .collect();
++
++    chat.update_account_state(
++        Some(StatusAccountDisplay::ChatGpt {
++            email: None,
++            plan: None,
++        }),
++        /*plan_type*/ None,
++        /*has_chatgpt_account*/ true,
++        /*has_codex_backend_auth*/ true,
++    );
++    assert_eq!(status_line_text(&chat), None);
++
++    chat.on_account_email_loaded(Some("first@example.com".to_string()));
++    assert_eq!(status_line_text(&chat), Some("one".to_string()));
++
++    chat.update_account_state(
++        Some(StatusAccountDisplay::ChatGpt {
++            email: None,
++            plan: None,
++        }),
++        /*plan_type*/ None,
++        /*has_chatgpt_account*/ true,
++        /*has_codex_backend_auth*/ true,
++    );
++    assert_eq!(status_line_text(&chat), None);
++    chat.on_account_email_loaded(Some("second@example.com".to_string()));
++    assert_eq!(status_line_text(&chat), Some("two".to_string()));
++    let preview = chat
++        .status_surface_preview_data()
++        .status_line_for_items([StatusLineItem::Account], /*use_theme_colors*/ false)
++        .expect("account preview");
++    assert_eq!(
++        preview
++            .spans
++            .iter()
++            .map(|span| span.content.as_ref())
++            .collect::<String>(),
++        "two"
++    );
++
++    chat.update_account_state(
++        /*status_account_display*/ None, /*plan_type*/ None,
++        /*has_chatgpt_account*/ false, /*has_codex_backend_auth*/ false,
++    );
++    assert_eq!(status_line_text(&chat), None);
++
++    chat.update_account_state(
++        Some(StatusAccountDisplay::ApiKey),
++        /*plan_type*/ None,
++        /*has_chatgpt_account*/ false,
++        /*has_codex_backend_auth*/ true,
++    );
++    assert_eq!(status_line_text(&chat), Some("api".to_string()));
++}
++
+ #[tokio::test]
+ async fn raw_output_status_line_value_only_shows_when_enabled() {
+     let (mut chat, _rx, _ops) = make_chatwidget_manual(/*model_override*/ None).await;
+diff --git a/codex-rs/tui/src/herdr_fork.rs b/codex-rs/tui/src/herdr_fork.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..6bf09ba1a7f2616f382c6e638714fe2b299d9672
+--- /dev/null
++++ b/codex-rs/tui/src/herdr_fork.rs
+@@ -0,0 +1,223 @@
++//! Local Herdr integration. This path never submits a user turn or a model request.
++
++use crate::app_event::AppEvent;
++use crate::app_event_sender::AppEventSender;
++use crate::history_cell;
++use codex_protocol::ThreadId;
++use serde::Deserialize;
++use std::process::Stdio;
++use std::sync::atomic::AtomicBool;
++use std::sync::atomic::Ordering;
++use std::time::Duration;
++use std::time::SystemTime;
++use std::time::UNIX_EPOCH;
++use tokio::process::Command;
++
++static RUNNING: AtomicBool = AtomicBool::new(false);
++
++struct RunningGuard;
++
++impl Drop for RunningGuard {
++    fn drop(&mut self) {
++        RUNNING.store(false, Ordering::Release);
++    }
++}
++
++#[derive(Deserialize)]
++#[serde(rename_all = "camelCase")]
++struct ForkResult {
++    source_session: String,
++    new_pane: String,
++    new_session: String,
++    command_sent: bool,
++}
++
++pub(crate) fn start(thread_id: ThreadId, tx: AppEventSender) -> Result<(), String> {
++    if std::env::var("HERDR_ENV").as_deref() != Ok("1") {
++        return Err("/hfork requires a local Codex session inside Herdr.".to_string());
++    }
++    let pane = std::env::var("HERDR_PANE_ID")
++        .ok()
++        .filter(|pane| !pane.is_empty())
++        .ok_or_else(|| "Herdr did not provide the current pane ID.".to_string())?;
++    if RUNNING
++        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
++        .is_err()
++    {
++        return Err("A Herdr fork is already in progress.".to_string());
++    }
++    let guard = RunningGuard;
++    tokio::spawn(async move {
++        let _guard = guard;
++        let herdr = std::env::var("HERDR_BIN_PATH").unwrap_or_else(|_| "herdr".to_string());
++        let result = run("herdr-codex-fork-right", &herdr, &pane, thread_id).await;
++        let cell = match result {
++            Ok(fork) => history_cell::new_info_event(
++                format!(
++                    "Fork started in right pane {} (session {}). Original pane and focus preserved.",
++                    fork.new_pane, fork.new_session
++                ),
++                None,
++            ),
++            Err(message) => history_cell::new_error_event(message),
++        };
++        tx.send(AppEvent::InsertHistoryCell(Box::new(cell)));
++    });
++    Ok(())
++}
++
++async fn run(
++    helper: &str,
++    herdr: &str,
++    pane: &str,
++    thread_id: ThreadId,
++) -> Result<ForkResult, String> {
++    // SessionStart hooks may be deferred until the first turn. The TUI already
++    // knows its exact thread, so publish it without starting a model turn.
++    let sequence = SystemTime::now()
++        .duration_since(UNIX_EPOCH)
++        .map_err(|error| error.to_string())?
++        .as_nanos()
++        .to_string();
++    let report = tokio::time::timeout(
++        Duration::from_secs(15),
++        Command::new(herdr)
++            .args([
++                "pane",
++                "report-agent-session",
++                pane,
++                "--source",
++                "herdr:codex",
++                "--agent",
++                "codex",
++                "--agent-session-id",
++                &thread_id.to_string(),
++                "--seq",
++                &sequence,
++            ])
++            .stdin(Stdio::null())
++            .stdout(Stdio::null())
++            .stderr(Stdio::null())
++            .kill_on_drop(true)
++            .status(),
++    )
++    .await
++    .map_err(|_| {
++        "Reporting the current session to Herdr timed out; no fork was started.".to_string()
++    })?
++    .map_err(|error| format!("Could not report the current session to Herdr: {error}"))?;
++    if !report.success() {
++        return Err(
++            "Could not report the current session to Herdr; no fork was started.".to_string(),
++        );
++    }
++    let mut command = Command::new(helper);
++    command
++        .args([
++            "--pane",
++            pane,
++            "--expected-session-id",
++            &thread_id.to_string(),
++        ])
++        .stdin(Stdio::null())
++        .stdout(Stdio::piped())
++        .stderr(Stdio::piped())
++        .kill_on_drop(true);
++    let output = tokio::time::timeout(Duration::from_secs(150), command.output())
++        .await
++        .map_err(|_| "Herdr fork timed out. Check the pane layout before retrying.".to_string())?
++        .map_err(|error| format!("Could not run herdr-codex-fork-right: {error}"))?;
++    if !output.status.success() {
++        let message = String::from_utf8_lossy(&output.stderr).trim().to_string();
++        return Err(if message.is_empty() {
++            "Herdr fork failed; check the pane layout before retrying.".to_string()
++        } else {
++            message
++        });
++    }
++    let result: ForkResult = serde_json::from_slice(&output.stdout).map_err(|_| {
++        "Herdr fork returned an invalid response. Check the pane layout before retrying."
++            .to_string()
++    })?;
++    if !result.command_sent
++        || result.source_session != thread_id.to_string()
++        || result.new_session == result.source_session
++        || result.new_pane.is_empty()
++    {
++        return Err(
++            "Herdr fork did not confirm a new session. Check the pane layout before retrying."
++                .to_string(),
++        );
++    }
++    Ok(result)
++}
++
++#[cfg(all(test, unix))]
++mod tests {
++    use super::*;
++    use std::os::unix::fs::PermissionsExt;
++
++    fn fake_herdr(dir: &std::path::Path, parent: ThreadId) -> std::path::PathBuf {
++        let herdr = dir.join("herdr");
++        std::fs::write(&herdr, format!(
++            "#!/bin/sh\n[ \"$1\" = pane ] && [ \"$2\" = report-agent-session ] && [ \"$3\" = test:p1 ] && [ \"$5\" = herdr:codex ] && [ \"$9\" = {parent} ]\n"
++        )).unwrap();
++        std::fs::set_permissions(&herdr, std::fs::Permissions::from_mode(0o755)).unwrap();
++        herdr
++    }
++
++    #[tokio::test]
++    async fn hfork_runs_only_the_local_helper_with_the_exact_session() {
++        let dir = tempfile::tempdir().unwrap();
++        let helper = dir.path().join("helper");
++        let parent = ThreadId::new();
++        let child = ThreadId::new();
++        std::fs::write(&helper, format!(
++            "#!/bin/sh\n[ \"$1\" = --pane ] && [ \"$2\" = test:p1 ] && [ \"$3\" = --expected-session-id ] && [ \"$4\" = {parent} ] || exit 1\nprintf '%s\\n' '{{\"sourceSession\":\"{parent}\",\"newPane\":\"test:p2\",\"newSession\":\"{child}\",\"commandSent\":true}}'\n"
++        )).unwrap();
++        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
++        let herdr = fake_herdr(dir.path(), parent);
++        let result = run(
++            helper.to_str().unwrap(),
++            herdr.to_str().unwrap(),
++            "test:p1",
++            parent,
++        )
++        .await
++        .unwrap();
++        assert_eq!(result.new_session, child.to_string());
++        assert_eq!(result.new_pane, "test:p2");
++    }
++
++    #[tokio::test]
++    async fn hfork_never_forks_if_session_reporting_fails() {
++        let dir = tempfile::tempdir().unwrap();
++        let parent = ThreadId::new();
++        let herdr = fake_herdr(dir.path(), ThreadId::new());
++        let result = run(
++            "helper-must-not-run",
++            herdr.to_str().unwrap(),
++            "test:p1",
++            parent,
++        )
++        .await;
++        assert!(matches!(result, Err(message) if message.contains("no fork was started")));
++    }
++
++    #[tokio::test]
++    async fn hfork_reports_helper_failure_without_retrying() {
++        let dir = tempfile::tempdir().unwrap();
++        let helper = dir.path().join("helper");
++        std::fs::write(
++            &helper,
++            "#!/bin/sh\nprintf 'source session changed' >&2\nexit 1\n",
++        )
++        .unwrap();
++        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
++        let parent = ThreadId::new();
++        let herdr = fake_herdr(dir.path(), parent);
++        assert!(
++            matches!(run(helper.to_str().unwrap(), herdr.to_str().unwrap(), "test:p1", parent).await, Err(message) if message == "source session changed")
++        );
++    }
++}
+diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
+index 147ff230b045f9a7d0041adbeb2a7fca724d3eb0..a2a4963ce4a392905782c38104ab7fd4e93eed9c 100644
+--- a/codex-rs/tui/src/lib.rs
++++ b/codex-rs/tui/src/lib.rs
+@@ -160,6 +160,7 @@ mod get_git_diff;
+ mod git_action_directives;
+ mod goal_display;
+ mod goal_files;
++mod herdr_fork;
+ mod history_cell;
+ mod hooks_rpc;
+ mod ide_context;
+diff --git a/codex-rs/tui/src/local_settings.rs b/codex-rs/tui/src/local_settings.rs
+index 1d0d7eb84b86a5a166f7d73d6e3c81bbc0bd9d67..07d7ecc3164910b8f3afcb30093530a127ad414a 100644
+--- a/codex-rs/tui/src/local_settings.rs
++++ b/codex-rs/tui/src/local_settings.rs
+@@ -76,6 +76,7 @@ impl LocalSettings {
+                 alternate_screen: config.tui_alternate_screen,
+                 status_line: config.tui_status_line.clone(),
+                 status_line_use_colors: config.tui_status_line_use_colors,
++                account_aliases: config.tui_account_aliases.clone(),
+                 terminal_title: config.tui_terminal_title.clone(),
+                 theme: config.tui_theme.clone(),
+                 pet: config.tui_pet.clone(),
+diff --git a/codex-rs/tui/src/slash_command.rs b/codex-rs/tui/src/slash_command.rs
+index dfd05384f774cf1af283e1c6048ad4f5b97c89eb..63c564d83845a1ed51553a60048b73f3aa5efbd0 100644
+--- a/codex-rs/tui/src/slash_command.rs
++++ b/codex-rs/tui/src/slash_command.rs
+@@ -35,6 +35,7 @@ pub enum SlashCommand {
+     Delete,
+     Resume,
+     Fork,
++    Hfork,
+     Worktree,
+     App,
+     Init,
+@@ -105,6 +106,7 @@ impl SlashCommand {
+             SlashCommand::Delete => "permanently delete this session",
+             SlashCommand::Clear => "clear the terminal and start a new chat",
+             SlashCommand::Fork => "fork the current chat",
++            SlashCommand::Hfork => "fork into a new Herdr pane on the right (no model request)",
+             SlashCommand::Worktree => "start or continue a conversation in a new worktree",
+             SlashCommand::App => "continue this session in the Desktop app",
+             SlashCommand::Quit | SlashCommand::Exit => "exit Codex",
+@@ -271,6 +273,7 @@ impl SlashCommand {
+             | SlashCommand::MemoryDrop
+             | SlashCommand::MemoryUpdate => false,
+             SlashCommand::Diff
++            | SlashCommand::Hfork
+             | SlashCommand::Archive
+             | SlashCommand::Resume
+             | SlashCommand::Model
+diff --git a/codex-rs/tui/src/status/account.rs b/codex-rs/tui/src/status/account.rs
+index 7d814a27ac4dc657e100629c1910b321b515a212..40e2aa2c0aece1757ab4e162979f100af779311c 100644
+--- a/codex-rs/tui/src/status/account.rs
++++ b/codex-rs/tui/src/status/account.rs
+@@ -1,3 +1,5 @@
++use std::collections::BTreeMap;
++
+ #[derive(Debug, Clone, PartialEq, Eq)]
+ pub(crate) enum StatusAccountDisplay {
+     ChatGpt {
+@@ -6,3 +8,81 @@ pub(crate) enum StatusAccountDisplay {
+     },
+     ApiKey,
+ }
++
++impl StatusAccountDisplay {
++    /// Resolve a short label from the connected server's account identity.
++    pub(crate) fn short_name(&self, aliases: &BTreeMap<String, String>) -> Option<String> {
++        let email = match self {
++            Self::ApiKey => return Some("api".to_string()),
++            Self::ChatGpt { email, .. } => email.as_deref()?.trim(),
++        };
++        let alias = aliases
++            .iter()
++            .find(|(address, _)| address.eq_ignore_ascii_case(email))
++            .map(|(_, alias)| alias.as_str());
++        alias.and_then(short_label).or_else(|| {
++            let local_part = email.split_once('@')?.0;
++            short_label(local_part)
++        })
++    }
++}
++
++fn short_label(value: &str) -> Option<String> {
++    let label: String = value
++        .chars()
++        .filter(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | '.'))
++        .take(12)
++        .collect();
++    (!label.is_empty()).then_some(label)
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use pretty_assertions::assert_eq;
++
++    fn account(email: Option<&str>) -> StatusAccountDisplay {
++        StatusAccountDisplay::ChatGpt {
++            email: email.map(str::to_string),
++            plan: None,
++        }
++    }
++
++    #[test]
++    fn account_short_name_uses_case_insensitive_aliases() {
++        let aliases = BTreeMap::from([("alice@example.com".into(), "al".into())]);
++        assert_eq!(
++            account(Some("Alice@Example.com")).short_name(&aliases),
++            Some("al".into())
++        );
++        assert_eq!(
++            account(Some("bob@example.com")).short_name(&aliases),
++            Some("bob".into())
++        );
++    }
++
++    #[test]
++    fn account_short_name_handles_missing_identity_and_api_keys() {
++        let aliases = BTreeMap::new();
++        for email in [None, Some(""), Some("@example.com"), Some("unknown")] {
++            assert_eq!(account(email).short_name(&aliases), None);
++        }
++        assert_eq!(
++            StatusAccountDisplay::ApiKey.short_name(&aliases),
++            Some("api".into())
++        );
++    }
++
++    #[test]
++    fn account_short_name_keeps_labels_short_and_single_line() {
++        let aliases = BTreeMap::from([("alice@example.com".into(), "\n\u{1b}al\r".into())]);
++        assert_eq!(
++            account(Some("alice@example.com")).short_name(&aliases),
++            Some("al".into())
++        );
++        assert_eq!(
++            account(Some("averylongaccountname@example.com")).short_name(&aliases),
++            Some("averylongacc".into())
++        );
++    }
++}

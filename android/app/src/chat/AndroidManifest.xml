@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 会话版:一个 WebView 壳,装的就是网页版的会话页(`?view=chat`)。
+     这样网页改了这个 APP 不必重新发包 —— 终端那半才需要原生。 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity android:name="io.agentstudio.connection.ConnectActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <!-- 🔑 configChanges 必须留着:没有它,转一下屏幕系统就把 Activity 连同 WebView
+             一起销毁重建,页面从头加载 —— 正在写的草稿、读到一半的位置、已解码的图片
+             全没了。这个 Activity 只是个壳,横竖屏没有两套布局要重新摆,自己接住配置
+             变化即可。 -->
+        <activity
+            android:name=".ChatActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|navigation"
+            android:enableOnBackInvokedCallback="true"
+            android:windowSoftInputMode="adjustResize"
+            android:exported="false">
+
+        </activity>
+        <!-- 分享图片给微信、QQ 等：只读、只给缓存目录 shared/ 下的文件（SharedImageProvider）。 -->
+        <provider
+            android:name=".SharedImageProvider"
+            android:authorities="${applicationId}.shared"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+    </application>
+</manifest>

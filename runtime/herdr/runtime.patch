@@ -1,0 +1,3278 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 9357a15..8646e04 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -778,7 +778,7 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
+ 
+ [[package]]
+ name = "herdr"
+-version = "0.9.5"
++version = "0.9.5-swift.2"
+ dependencies = [
+  "base64",
+  "bincode",
+diff --git a/Cargo.toml b/Cargo.toml
+index 0573af0..cd7e305 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "herdr"
+-version = "0.9.5"
++version = "0.9.5-swift.2"
+ edition = "2021"
+ build = "build.rs"
+ description = "terminal workspace manager for AI coding agents"
+diff --git a/crates/ghostty-vt/src/bindings.rs b/crates/ghostty-vt/src/bindings.rs
+index 33443ac..2b2ef97 100644
+--- a/crates/ghostty-vt/src/bindings.rs
++++ b/crates/ghostty-vt/src/bindings.rs
+@@ -2355,7 +2355,7 @@ impl Default for GhosttyKittyImageFileBacking {
+         }
+     }
+ }
+-#[doc = " Optional synchronous callback, default NULL. Verify exact descriptor size\n and snapshot immutable bytes before returning true. True transfers one context\n reference; false transfers nothing. Do not close the borrowed descriptor or\n reenter the terminal. Read must fill exactly len bytes; release is called once.\n identity identifies the immutable revision, not a pathname or source inode."]
++#[doc = " Optional synchronous callback, default NULL. Verify exact descriptor size\n and snapshot immutable bytes before returning true. True transfers one context\n reference; false transfers nothing. Do not close the borrowed descriptor or\n reenter the terminal. Both read and release MUST be non-NULL on success.\n Read must fill exactly len bytes; release is called once. An incomplete\n backing is rejected and ordinary file loading is used instead. If release\n is provided, rejection calls it once; without release, the host remains\n responsible for cleanup (the terminal cannot release that context).\n identity identifies the immutable revision, not a pathname or source inode."]
+ pub type GhosttyKittyImageSnapshotFileFn = ::std::option::Option<
+     unsafe extern "C" fn(
+         terminal: GhosttyTerminal,
+@@ -3303,7 +3303,9 @@ pub const GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_CLIPBOARD_WRITE_MAX_BYTES: G
+     40;
+ #[doc = " Whether xterm modifyOtherKeys mode 2 is enabled.\n\n Output type: bool *"]
+ pub const GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_MODIFY_OTHER_KEYS: GhosttyTerminalData = 41;
+-#[doc = " Whether xterm modifyOtherKeys mode 2 is enabled.\n\n Output type: bool *"]
++#[doc = " Current DECSCUSR cursor appearance: 0 for the configured default,\n 1/2 blinking/steady block, 3/4 underline, 5/6 bar.\n Swift runtime extension; querying does not update render state.\n Output type: uint8_t *"]
++pub const GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_CURSOR_SHAPE: GhosttyTerminalData = 42;
++#[doc = " Current DECSCUSR cursor appearance: 0 for the configured default,\n 1/2 blinking/steady block, 3/4 underline, 5/6 bar.\n Swift runtime extension; querying does not update render state.\n Output type: uint8_t *"]
+ pub const GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_MAX_VALUE: GhosttyTerminalData = 2147483647;
+ #[doc = " Terminal data types.\n\n These values specify what type of data to extract from a terminal\n using `ghostty_terminal_get`.\n\n @ingroup terminal"]
+ pub type GhosttyTerminalData = ::std::os::raw::c_int;
+diff --git a/crates/ghostty-vt/src/lib.rs b/crates/ghostty-vt/src/lib.rs
+index 4bf3675..c6a289c 100644
+--- a/crates/ghostty-vt/src/lib.rs
++++ b/crates/ghostty-vt/src/lib.rs
+@@ -460,6 +460,19 @@ pub struct RenderColors {
+     pub palette: [RgbColor; 256],
+ }
+ 
++pub struct StyledScreenCell {
++    pub wide: CellWide,
++    pub graphemes: Vec<u32>,
++    pub style: CellStyle,
++    pub hyperlink: Option<String>,
++}
++
++pub struct StyledScreenRow {
++    pub cells: Vec<StyledScreenCell>,
++    pub soft_wrapped: bool,
++    pub wrap_continuation: bool,
++}
++
+ #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+ pub enum CellWide {
+     Narrow,
+@@ -845,7 +858,17 @@ pub struct LinkRegion {
+     pub end_col: u16,
+ }
+ 
++#[derive(Clone, Copy, Debug)]
++pub struct HistoryCoordinates {
++    pub epoch: u64,
++    pub offset: usize,
++}
++
+ pub struct Terminal {
++    observation_anchor: ffi::GhosttyTrackedGridRef,
++    observation_geometry: Option<(u16, u16, ActiveScreen)>,
++    observation_first: usize,
++    observation_coordinates: HistoryCoordinates,
+     raw: ffi::GhosttyTerminal,
+     max_scrollback: usize,
+     #[cfg(windows)]
+@@ -864,7 +887,25 @@ impl Terminal {
+             ffi::ghostty_terminal_new(ptr::null(), &mut raw, cols, rows).into_result()?;
+         }
+ 
++        Self::from_raw(raw, cols, rows, max_scrollback, false)
++    }
++
++    // Takes ownership of raw even when callback installation fails.
++    fn from_raw(
++        raw: ffi::GhosttyTerminal,
++        cols: u16,
++        rows: u16,
++        max_scrollback: usize,
++        restored: bool,
++    ) -> Result<Self, Error> {
+         let mut terminal = Self {
++            observation_anchor: ptr::null_mut(),
++            observation_geometry: None,
++            observation_first: 0,
++            observation_coordinates: HistoryCoordinates {
++                epoch: 0,
++                offset: 0,
++            },
+             raw,
+             max_scrollback,
+             #[cfg(windows)]
+@@ -896,28 +937,38 @@ impl Terminal {
+         let clipboard_callback: ffi::GhosttyTerminalClipboardWriteFn =
+             Some(clipboard_write_trampoline);
+         unsafe {
+-            ffi::ghostty_terminal_set(
+-                terminal.raw,
+-                ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_STORAGE_LIMIT,
+-                (&kitty_storage_limit as *const u64).cast(),
+-            )
+-            .into_result()?;
++            if !restored {
++                ffi::ghostty_terminal_set(
++                    terminal.raw,
++                    ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_STORAGE_LIMIT,
++                    (&kitty_storage_limit as *const u64).cast(),
++                )
++                .into_result()?;
++                ffi::ghostty_terminal_set(
++                    terminal.raw,
++                    ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES,
++                    (&max_scrollback as *const usize).cast(),
++                )
++                .into_result()?;
++                ffi::ghostty_terminal_set(
++                    terminal.raw,
++                    ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_MODE_DEFAULT,
++                    (&grapheme_default as *const ffi::GhosttyTerminalModeConfig).cast(),
++                )
++                .into_result()?;
++            }
+             ffi::ghostty_terminal_set(
+                 terminal.raw,
+                 ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_TERMINFO_NAME,
+                 (&terminfo_name as *const ffi::GhosttyString).cast(),
+             )
+             .into_result()?;
++            // Only unfinished input is retained, up to Ghostty's APC limit.
++            let continuation_limit: usize = 65 * 1024 * 1024;
+             ffi::ghostty_terminal_set(
+                 terminal.raw,
+-                ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES,
+-                (&max_scrollback as *const usize).cast(),
+-            )
+-            .into_result()?;
+-            ffi::ghostty_terminal_set(
+-                terminal.raw,
+-                ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_MODE_DEFAULT,
+-                (&grapheme_default as *const ffi::GhosttyTerminalModeConfig).cast(),
++                ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES,
++                (&continuation_limit as *const usize).cast(),
+             )
+             .into_result()?;
+             ffi::ghostty_terminal_set(
+@@ -970,6 +1021,59 @@ impl Terminal {
+         Ok(terminal)
+     }
+ 
++    /// Complete Ghostty snapshot, including both screens and unfinished input.
++    pub fn snapshot(&self) -> Result<Vec<u8>, Error> {
++        let mut bytes = ptr::null_mut();
++        let mut len = 0;
++        unsafe {
++            ffi::ghostty_snapshot_encode_alloc(self.raw, ptr::null(), &mut bytes, &mut len)
++                .into_result()?;
++            let result = slice::from_raw_parts(bytes, len).to_vec();
++            ffi::ghostty_free(ptr::null(), bytes, len);
++            Ok(result)
++        }
++    }
++
++    pub fn from_snapshot(
++        bytes: &[u8],
++        cols: u16,
++        rows: u16,
++        max_scrollback: usize,
++        cell_size: (u32, u32),
++    ) -> Result<Self, Error> {
++        let mut decoder = ptr::null_mut();
++        let mut raw = ptr::null_mut();
++        unsafe {
++            ffi::ghostty_snapshot_decoder_new_buf(
++                ptr::null(),
++                &mut decoder,
++                bytes.as_ptr(),
++                bytes.len(),
++            )
++            .into_result()?;
++            let retain = true;
++            let configured = ffi::ghostty_snapshot_decoder_set(
++                decoder,
++                ffi::GhosttySnapshotDecoderOption_GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION,
++                (&retain as *const bool).cast(),
++            );
++            let result = if configured == ffi::GhosttyResult_GHOSTTY_SUCCESS {
++                ffi::ghostty_snapshot_decoder_decode(decoder, &mut raw)
++            } else {
++                configured
++            };
++            ffi::ghostty_snapshot_decoder_free(decoder);
++            result.into_result()?;
++        }
++        let mut terminal = Self::from_raw(raw, cols, rows, max_scrollback, true)?;
++        terminal.callback_state.size_report.cell_width = cell_size.0;
++        terminal.callback_state.size_report.cell_height = cell_size.1;
++        if terminal.cols()? != cols || terminal.rows()? != rows {
++            return Err(Error(ffi::GhosttyResult_GHOSTTY_INVALID_VALUE));
++        }
++        Ok(terminal)
++    }
++
+     pub fn write(&mut self, bytes: &[u8]) {
+         // SAFETY: self.raw is a live terminal handle for self's lifetime.
+         unsafe {
+@@ -1281,6 +1385,117 @@ impl Terminal {
+         (result == ffi::GhosttyResult_GHOSTTY_SUCCESS).then_some(point.y as usize)
+     }
+ 
++    /// Keep logical row positions stable when old scrollback pages are pruned.
++    /// One terminal-owned tracked cell is shared by all observers. Reflow and
++    /// discarded anchors start a new epoch rather than guessing row alignment.
++    pub fn observation_history_coordinates(&mut self) -> Result<HistoryCoordinates, Error> {
++        let geometry = (self.cols()?, self.rows()?, self.active_screen()?);
++        let first = self.total_rows()?.saturating_sub(usize::from(geometry.1));
++        let mut point = ffi::GhosttyPointCoordinate::default();
++        // SAFETY: all calls run under the owning terminal's core lock; the pin
++        // is freed before the terminal and never accessed by another owner.
++        let resolved = unsafe {
++            ffi::ghostty_tracked_grid_ref_point(
++                self.observation_anchor,
++                ffi::GhosttyPointTag_GHOSTTY_POINT_TAG_SCREEN,
++                &mut point,
++            )
++        } == ffi::GhosttyResult_GHOSTTY_SUCCESS;
++        let offset = resolved
++            .then(|| {
++                self.observation_coordinates
++                    .offset
++                    .checked_add(self.observation_first)?
++                    .checked_sub(point.y as usize)
++            })
++            .flatten();
++        match offset.filter(|_| self.observation_geometry == Some(geometry)) {
++            Some(offset) => self.observation_coordinates.offset = offset,
++            None => {
++                self.observation_coordinates.epoch += 1;
++                self.observation_coordinates.offset = 0;
++            }
++        }
++        self.observation_geometry = Some(geometry);
++        self.observation_first = first;
++        unsafe {
++            ffi::ghostty_tracked_grid_ref_free(self.observation_anchor);
++            self.observation_anchor = ptr::null_mut();
++            ffi::ghostty_terminal_grid_ref_track(
++                self.raw,
++                ffi::GhosttyPoint {
++                    tag: ffi::GhosttyPointTag_GHOSTTY_POINT_TAG_ACTIVE,
++                    value: ffi::GhosttyPointValue {
++                        coordinate: ffi::GhosttyPointCoordinate { x: 0, y: 0 },
++                    },
++                },
++                &mut self.observation_anchor,
++            )
++            .into_result()?;
++        }
++        Ok(self.observation_coordinates)
++    }
++
++    /// Read an absolute screen/history row without moving the shared viewport.
++    pub fn screen_styled_row(&self, row: u32) -> Result<StyledScreenRow, Error> {
++        // Resolve live rows through ACTIVE coordinates: SCREEN lookups traverse
++        // the scrollback page list and would make every frame scale with history.
++        let history = self.total_rows()?.saturating_sub(usize::from(self.rows()?));
++        let point = if row as usize >= history {
++            ffi::GhosttyPoint {
++                tag: ffi::GhosttyPointTag_GHOSTTY_POINT_TAG_ACTIVE,
++                value: ffi::GhosttyPointValue {
++                    coordinate: ffi::GhosttyPointCoordinate {
++                        x: 0,
++                        y: row - history as u32,
++                    },
++                },
++            }
++        } else {
++            ghostty_screen_point(0, row)
++        };
++        let mut grid_ref = self.grid_ref(point)?;
++        let (soft_wrapped, wrap_continuation) = grid_ref_wrap_state(&grid_ref)?;
++        let mut cells = Vec::with_capacity(usize::from(self.cols()?));
++        for x in 0..self.cols()? {
++            grid_ref.x = x;
++            let mut style = ffi::GhosttyStyle {
++                size: mem::size_of::<ffi::GhosttyStyle>(),
++                ..Default::default()
++            };
++            // SAFETY: the row reference and output style live through this call.
++            unsafe {
++                ffi::ghostty_grid_ref_style(&grid_ref, &mut style).into_result()?;
++            }
++            let mut raw = ffi::GhosttyCell::default();
++            // SAFETY: grid_ref still refers to the same locked terminal row.
++            unsafe {
++                ffi::ghostty_grid_ref_cell(&grid_ref, &mut raw).into_result()?;
++            }
++            let mut style: CellStyle = style.into();
++            // Erased cells store their background in the content tag rather
++            // than the style table. Preserve palette indices for client themes.
++            if let Some(background) = cell_content_bg_color(raw)? {
++                style.bg_color = Some(background);
++            }
++            cells.push(StyledScreenCell {
++                wide: cell_wide(raw)?,
++                graphemes: grid_ref_graphemes(&grid_ref)?,
++                style,
++                hyperlink: grid_ref_hyperlink_uri(&grid_ref)?,
++            });
++        }
++        Ok(StyledScreenRow {
++            cells,
++            soft_wrapped,
++            wrap_continuation,
++        })
++    }
++
++    pub fn cursor_x(&self) -> Result<u16, Error> {
++        self.get_u16(ffi::GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_CURSOR_X)
++    }
++
+     pub fn screen_cell(&self, x: u16, y: u32) -> Result<(CellWide, Vec<u32>), Error> {
+         let grid_ref = self.grid_ref(ghostty_screen_point(x, y))?;
+         let wide = grid_ref_wide(&grid_ref)?;
+@@ -1753,6 +1968,21 @@ impl Terminal {
+         self.get_u16(ffi::GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_ROWS)
+     }
+ 
++    /// Current DECSCUSR appearance, read without a viewport/render update.
++    pub fn cursor_shape(&self) -> Result<u8, Error> {
++        let mut shape = 0u8;
++        // SAFETY: the extension getter writes one uint8_t into shape.
++        unsafe {
++            ffi::ghostty_terminal_get(
++                self.raw,
++                ffi::GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_CURSOR_SHAPE,
++                (&mut shape as *mut u8).cast(),
++            )
++            .into_result()?;
++        }
++        Ok(shape)
++    }
++
+     pub fn cursor_y(&self) -> Result<u16, Error> {
+         self.get_u16(ffi::GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_CURSOR_Y)
+     }
+@@ -2309,6 +2539,7 @@ impl Drop for Terminal {
+         unsafe {
+             #[cfg(windows)]
+             ffi::ghostty_tracked_grid_ref_free(self.tracked_row);
++            ffi::ghostty_tracked_grid_ref_free(self.observation_anchor);
+             ffi::ghostty_terminal_free(self.raw);
+         }
+     }
+@@ -2380,7 +2611,10 @@ fn grid_ref_wide(grid_ref: &ffi::GhosttyGridRef) -> Result<CellWide, Error> {
+     unsafe {
+         ffi::ghostty_grid_ref_cell(grid_ref, &mut raw).into_result()?;
+     }
++    cell_wide(raw)
++}
+ 
++fn cell_wide(raw: ffi::GhosttyCell) -> Result<CellWide, Error> {
+     let mut wide = ffi::GhosttyCellWide_GHOSTTY_CELL_WIDE_NARROW;
+     unsafe {
+         ffi::ghostty_cell_get(
+@@ -2393,6 +2627,46 @@ fn grid_ref_wide(grid_ref: &ffi::GhosttyGridRef) -> Result<CellWide, Error> {
+     Ok(CellWide::from_raw(wide))
+ }
+ 
++fn cell_content_bg_color(raw: ffi::GhosttyCell) -> Result<Option<CellColor>, Error> {
++    let mut tag = ffi::GhosttyCellContentTag_GHOSTTY_CELL_CONTENT_CODEPOINT;
++    unsafe {
++        ffi::ghostty_cell_get(
++            raw,
++            ffi::GhosttyCellData_GHOSTTY_CELL_DATA_CONTENT_TAG,
++            (&mut tag as *mut ffi::GhosttyCellContentTag).cast(),
++        )
++        .into_result()?;
++    }
++
++    match tag {
++        ffi::GhosttyCellContentTag_GHOSTTY_CELL_CONTENT_BG_COLOR_PALETTE => {
++            let mut index = 0u8;
++            unsafe {
++                ffi::ghostty_cell_get(
++                    raw,
++                    ffi::GhosttyCellData_GHOSTTY_CELL_DATA_COLOR_PALETTE,
++                    (&mut index as *mut u8).cast(),
++                )
++                .into_result()?;
++            }
++            Ok(Some(CellColor::Palette(index)))
++        }
++        ffi::GhosttyCellContentTag_GHOSTTY_CELL_CONTENT_BG_COLOR_RGB => {
++            let mut color = ffi::GhosttyColorRgb::default();
++            unsafe {
++                ffi::ghostty_cell_get(
++                    raw,
++                    ffi::GhosttyCellData_GHOSTTY_CELL_DATA_COLOR_RGB,
++                    (&mut color as *mut ffi::GhosttyColorRgb).cast(),
++                )
++                .into_result()?;
++            }
++            Ok(Some(CellColor::Rgb(color.into())))
++        }
++        _ => Ok(None),
++    }
++}
++
+ fn grid_ref_wrap_state(grid_ref: &ffi::GhosttyGridRef) -> Result<(bool, bool), Error> {
+     let mut row = 0;
+     unsafe {
+@@ -3603,44 +3877,7 @@ impl<'a> RowCellIter<'a> {
+     }
+ 
+     pub fn content_bg_color(&self) -> Result<Option<CellColor>, Error> {
+-        let raw = self.raw_cell()?;
+-        let mut tag = ffi::GhosttyCellContentTag_GHOSTTY_CELL_CONTENT_CODEPOINT;
+-        unsafe {
+-            ffi::ghostty_cell_get(
+-                raw,
+-                ffi::GhosttyCellData_GHOSTTY_CELL_DATA_CONTENT_TAG,
+-                (&mut tag as *mut ffi::GhosttyCellContentTag).cast(),
+-            )
+-            .into_result()?;
+-        }
+-
+-        match tag {
+-            ffi::GhosttyCellContentTag_GHOSTTY_CELL_CONTENT_BG_COLOR_PALETTE => {
+-                let mut index = 0u8;
+-                unsafe {
+-                    ffi::ghostty_cell_get(
+-                        raw,
+-                        ffi::GhosttyCellData_GHOSTTY_CELL_DATA_COLOR_PALETTE,
+-                        (&mut index as *mut u8).cast(),
+-                    )
+-                    .into_result()?;
+-                }
+-                Ok(Some(CellColor::Palette(index)))
+-            }
+-            ffi::GhosttyCellContentTag_GHOSTTY_CELL_CONTENT_BG_COLOR_RGB => {
+-                let mut color = ffi::GhosttyColorRgb::default();
+-                unsafe {
+-                    ffi::ghostty_cell_get(
+-                        raw,
+-                        ffi::GhosttyCellData_GHOSTTY_CELL_DATA_COLOR_RGB,
+-                        (&mut color as *mut ffi::GhosttyColorRgb).cast(),
+-                    )
+-                    .into_result()?;
+-                }
+-                Ok(Some(CellColor::Rgb(color.into())))
+-            }
+-            _ => Ok(None),
+-        }
++        cell_content_bg_color(self.raw_cell()?)
+     }
+ 
+     pub fn fg_color(&self) -> Result<Option<RgbColor>, Error> {
+@@ -4560,6 +4797,79 @@ mod tests {
+         assert_eq!(after.len, before.len);
+     }
+ 
++    #[test]
++    fn snapshot_preserves_screens_history_modes_and_partial_input() {
++        let mut original = Terminal::new(40, 8, 1_000_000).unwrap();
++        write_numbered_lines(&mut original, 1000);
++        original.write(b"\x1b[?1049h\x1b[?1003h\x1b[?1006h\x1b[>31u\x1b[5 qALT");
++        // Snapshot at both an incomplete UTF-8 code point and an incomplete CSI.
++        for (prefix, suffix) in [
++            (vec![0xe4, 0xb8], vec![0xad]),
++            (b"\x1b[31".to_vec(), b"mRED".to_vec()),
++        ] {
++            original.write(&prefix);
++            let snapshot = original.snapshot().unwrap();
++            let mut restored =
++                Terminal::from_snapshot(&snapshot, 40, 8, 1_000_000, (8, 16)).unwrap();
++            assert_eq!(restored.active_screen().unwrap(), ActiveScreen::Alternate);
++            assert_eq!(restored.cursor_shape().unwrap(), 5);
++            assert_eq!(
++                restored.mode_get(1003).unwrap(),
++                original.mode_get(1003).unwrap()
++            );
++            original.write(&suffix);
++            restored.write(&suffix);
++            assert_eq!(
++                restored
++                    .read_ansi_screen((0, 0), (39, 7), false, true)
++                    .unwrap(),
++                original
++                    .read_ansi_screen((0, 0), (39, 7), false, true)
++                    .unwrap()
++            );
++            original.write(b"\x1b[?1049l");
++            restored.write(b"\x1b[?1049l");
++            let count = original.scrollback_rows().unwrap();
++            assert!(count > 900);
++            assert_eq!(restored.scrollback_rows().unwrap(), count);
++            assert_eq!(
++                restored
++                    .read_ansi_screen((0, 0), (39, count as u32 + 7), false, true)
++                    .unwrap(),
++                original
++                    .read_ansi_screen((0, 0), (39, count as u32 + 7), false, true)
++                    .unwrap()
++            );
++            original = restored;
++            original.write(b"\x1b[?1049h\x1b[5 q");
++        }
++    }
++
++    #[test]
++    fn snapshot_rejects_corruption_truncation_and_wrong_geometry() {
++        let terminal = Terminal::new(40, 8, 1_000_000).unwrap();
++        let mut snapshot = terminal.snapshot().unwrap();
++        assert!(Terminal::from_snapshot(
++            &snapshot[..snapshot.len() - 1],
++            40,
++            8,
++            1_000_000,
++            (8, 16)
++        )
++        .is_err());
++        assert!(Terminal::from_snapshot(&snapshot, 80, 8, 1_000_000, (8, 16)).is_err());
++        let mut restored = Terminal::from_snapshot(&snapshot, 40, 8, 1_000_000, (8, 16)).unwrap();
++        let responses = Arc::new(Mutex::new(Vec::new()));
++        let recorded = responses.clone();
++        restored
++            .set_write_pty_callback(move |bytes| recorded.lock().unwrap().extend_from_slice(bytes))
++            .unwrap();
++        restored.write(b"\x1b[16t");
++        assert_eq!(*responses.lock().unwrap(), b"\x1b[6;16;8t");
++        snapshot[20] ^= 0x80;
++        assert!(Terminal::from_snapshot(&snapshot, 40, 8, 1_000_000, (8, 16)).is_err());
++    }
++
+     #[test]
+     fn absolute_scroll_row_round_trips_and_clamps() {
+         let mut terminal = Terminal::new(80, 3, 1_000_000).unwrap();
+diff --git a/docs/next/api/herdr-api.schema.json b/docs/next/api/herdr-api.schema.json
+index e2553f7..290cb42 100644
+--- a/docs/next/api/herdr-api.schema.json
++++ b/docs/next/api/herdr-api.schema.json
+@@ -4357,6 +4357,61 @@
+           ],
+           "type": "object"
+         },
++        "TerminalHistoryParams": {
++          "additionalProperties": false,
++          "properties": {
++            "boot_id": {
++              "type": "string"
++            },
++            "history_epoch": {
++              "default": null,
++              "format": "uint64",
++              "minimum": 0,
++              "type": [
++                "integer",
++                "null"
++              ]
++            },
++            "limit": {
++              "format": "uint",
++              "minimum": 0,
++              "type": "integer"
++            },
++            "revision": {
++              "format": "uint64",
++              "minimum": 0,
++              "type": "integer"
++            },
++            "start": {
++              "format": "uint",
++              "minimum": 0,
++              "type": "integer"
++            },
++            "terminal_id": {
++              "type": "string"
++            }
++          },
++          "required": [
++            "terminal_id",
++            "boot_id",
++            "revision",
++            "start",
++            "limit"
++          ],
++          "type": "object"
++        },
++        "TerminalStateParams": {
++          "additionalProperties": false,
++          "properties": {
++            "terminal_id": {
++              "type": "string"
++            }
++          },
++          "required": [
++            "terminal_id"
++          ],
++          "type": "object"
++        },
+         "ToastHerdrPosition": {
+           "enum": [
+             "top-left",
+@@ -4681,6 +4736,38 @@
+       },
+       "$schema": "https://json-schema.org/draft/2020-12/schema",
+       "oneOf": [
++        {
++          "properties": {
++            "method": {
++              "const": "terminal.state.subscribe",
++              "type": "string"
++            },
++            "params": {
++              "$ref": "#/schemas/request/$defs/TerminalStateParams"
++            }
++          },
++          "required": [
++            "method",
++            "params"
++          ],
++          "type": "object"
++        },
++        {
++          "properties": {
++            "method": {
++              "const": "terminal.history.read",
++              "type": "string"
++            },
++            "params": {
++              "$ref": "#/schemas/request/$defs/TerminalHistoryParams"
++            }
++          },
++          "required": [
++            "method",
++            "params"
++          ],
++          "type": "object"
++        },
+         {
+           "properties": {
+             "method": {
+@@ -10450,6 +10537,24 @@
+               "default": false,
+               "description": "Whether this server supports explicit client-shell surface interest.",
+               "type": "boolean"
++            },
++            "terminal_input_version": {
++              "description": "Semantic pane input on a bound direct terminal controller.",
++              "format": "uint32",
++              "minimum": 0,
++              "type": [
++                "integer",
++                "null"
++              ]
++            },
++            "terminal_state_version": {
++              "description": "Versioned, read-only runtime terminal state and history API.",
++              "format": "uint32",
++              "minimum": 0,
++              "type": [
++                "integer",
++                "null"
++              ]
+             }
+           },
+           "required": [
+diff --git a/docs/next/swift-runtime.md b/docs/next/swift-runtime.md
+new file mode 100644
+index 0000000..b23a639
+--- /dev/null
++++ b/docs/next/swift-runtime.md
+@@ -0,0 +1,136 @@
++# Swift runtime extension
++
++This custom build is based on Herdr v0.9.5 (`2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01`).
++It keeps the existing private protocol and generation-1 codecs unchanged. It is
++not an upstream Herdr release. Swift manages its installation and updates.
++
++The local JSON API advertises `capabilities.terminal_state_version: 1` in `ping`.
++Authentication and remote transport remain the gateway's responsibility; the
++native API retains its local socket permissions.
++
++## Terminal state
++
++`terminal.state.subscribe` accepts `{ "terminal_id": "..." }` and holds the
++connection open. It observes the live screen, independently of the TUI's scroll
++position, focus and dimensions. It does not grant input or resize authority.
++
++Each NDJSON result has type `terminal_state`, version 1, `terminal_id`, `boot_id`,
++`revision`, `base_revision`, `cols`, `rows`, `total_rows`, `first_row`, `cursor`,
++`alternate_screen`, `mouse_tracking`, `mouse_sgr`, `mouse_pixels`,
++`bracketed_paste`, and `changes`. Cursor is `[column, row, visible]`. Optional
++`cursor_shape` carries DECSCUSR appearance 0..6, read through a narrow Ghostty
++getter without allocating or updating a render viewport. A change is
++`[row_index, row]`; row indices are relative to the live screen. Each row contains
++`cells`, `soft_wrapped`, and `wrap_continuation`.
++
++A null base revision replaces the entire display state and includes every row.
++Otherwise the client must have exactly the specified base revision and boot
++identity. Reconnect starts from a fresh snapshot. Cursor and mode changes may
++arrive with an empty changes array. Revisions are opaque ordered integers, not
++frame counts; clients must not assume they are consecutive.
++
++Each cell is `[text, width, foreground, background, attributes, underline_color,
++hyperlink]`. Width is 1 for narrow, 2 for wide, 0 for a wide tail and 3 for a wrap
++spacer. Colours are -1 for the default, 0..255 for palette entries, and
++`0x1000000 | rgb` for true colour. Attribute bits 0..7 represent bold, italic,
++faint, blink, inverse, invisible, strikethrough, overline; bits 8..10 hold the
++underline style. Hyperlink is a URI or null. This is parsed terminal state, not
++application output bytes. Future incompatible shapes require a new version.
++
++Snapshots share the native content lock and one cached result per terminal
++revision. Serialization and socket writes happen after releasing the content
++lock. Slow sockets do not queue every intermediate frame; the next write is
++computed from the most recent complete terminal state and the last sent state.
++The existing socket write timeout bounds a stalled connection. Closing a
++terminal ends its observations without transferring process ownership.
++
++## History
++
++State frames also carry `history_epoch`, `row_offset`, `history_start` and
++`history`. Logical row positions are physical screen rows plus `row_offset`.
++The initial snapshot includes up to 200 earlier rows; subsequent snapshots carry
++up to 256 newly historical rows. Missing ranges can be fetched separately.
++
++One terminal-owned Ghostty tracked grid reference anchors the live screen. Its
++position follows output and page pruning, so clients retain independent reading
++positions without comparing text. Resize/reflow, screen changes and discarded
++references start a new epoch. An epoch belongs to the stated boot and terminal.
++
++`terminal.history.read` accepts `terminal_id`, `boot_id`, `revision`, `start`,
++`limit`, and optional `history_epoch`. Without an epoch, physical row positions
++and exact revision checks retain the initial API's behavior. With an epoch,
++`start` is a logical row position and only rows before the live screen are read;
++ordinary newer output does not invalidate the read. A changed epoch or a pruned
++start fails instead of returning unrelated rows. The result includes the request
++identity, epoch, start, and styled `content`. Requests are capped at 2,048 rows
++and 262,144 cells. Reading never changes the native viewport.
++
++The Swift gateway negotiates this interface and forwards bounded chunks through
++its existing multiplexed WebSocket. The browser caches each terminal's native
++state and history and writes only changed visible rows. Existing ANSI clients
++remain compatible. Production migration and full platform performance
++acceptance remain separate work before the overall refactor ships.
++
++## Event delivery
++
++The existing events API wakes on EventHub notification, with its previous
++timeout retained for subscriptions that inspect output or scrolling. JSON
++request setup waits for socket readability rather than sleeping a fixed 100 ms
++after finding no bytes. Event formats and existing subscription semantics are
++preserved.
++
++## Native key encoding and control readiness
++
++`ping` also advertises `capabilities.terminal_input_version: 1`. A pending
++protocol-22 terminal connection may send the existing `EndpointControl` message
++with kind `terminal.control.configure` and JSON data `{ "frames": false }`, then
++resize and acquire control through the existing control request. Configuration
++is accepted only before binding. The runtime applies geometry and sends an
++`EndpointControl` response of kind `terminal.control.ready`, containing
++`terminal_id`, `cols` and `rows`. This controller does not become a render target
++and does not require a rendered frame before accepting input.
++
++The existing `ClientShellPaneInput` message also accepts semantic key events
++from a bound direct terminal controller. The requested pane must resolve to its
++bound terminal; pending clients, observers and other terminal targets cannot use
++this path. The runtime's existing Ghostty encoder applies current keyboard modes,
++modifiers, generated text and press/repeat/release semantics. Held releases are
++tracked by terminal identity and synthesized on disconnect. Mouse input retains
++the existing direct terminal mouse path. No protocol-22 enum or frozen endpoint
++codec shape changes. Swift negotiates this capability and keeps the legacy raw
++input path for old runtimes, browser composition and clipboard input.
++
++## Live handoff identity
++
++The handoff runtime record carries an optional `terminal_id`. Custom runtime
++exports always populate it, and restore reuses it instead of allocating a new
++identity. Persisted ordinary session restore retains its existing semantics.
++
++For a source such as v0.9.3 that predates this field, Swift's migration launcher
++supplies `SWIFT_HERDR_HANDOFF_IDENTITIES` only to the import process. The private
++map binds the source version, protocol, server PID and socket directory to a
++complete, unique PTY PID-to-terminal-ID mapping. Import checks it before
++accepting file descriptors or ownership, rejects mismatches, and removes the
++environment variable. It cannot silently replace an identity already present
++in the native manifest. Subsequent custom-to-custom handoffs need no map.
++
++Swift's migration command verifies the candidate against its build receipt and
++records PTY process start times and Pane/terminal identities before and after
++handoff. It sends no terminal input and never repeats a handoff whose response
++may have been lost. The official system binary stays unchanged. Identity checks
++do not claim that upstream handoff exports every transient rendering or history
++state; that continuity is verified separately before production migration.
++
++
++Custom-to-custom handoff now carries complete Ghostty binary snapshots in private
++0700/0600 temporary files, removed after restore acknowledgment or rollback.
++Readers pause before capture; restoring both screens, history, cursor, modes
++and unfinished VT/UTF-8 precedes ownership commit. Decode or capture failure
++aborts the handoff and resumes the original readers. Imported geometry is kept
++until a real controller resizes it. The bounded ANSI field remains solely as
++legacy importer fallback. The snapshot codec is pinned with the vendored
++Ghostty revision and is not a promised stable public interchange format.
++
++Sources predating this extension cannot export full snapshots. Their limited
++history replay and application redraw remain separate migration constraints;
++preserving process identity does not retroactively recover missing old state.
+diff --git a/src/api/event_hub.rs b/src/api/event_hub.rs
+index 2984331..d42bbea 100644
+--- a/src/api/event_hub.rs
++++ b/src/api/event_hub.rs
+@@ -1,6 +1,7 @@
+ #[derive(Clone, Default)]
+ pub struct EventHub {
+     inner: std::sync::Arc<std::sync::Mutex<EventHubState>>,
++    changed: std::sync::Arc<std::sync::Condvar>,
+ }
+ 
+ #[derive(Default)]
+@@ -29,6 +30,17 @@ impl EventHub {
+         if overflow > 0 {
+             state.events.drain(0..overflow);
+         }
++        self.changed.notify_all();
++    }
++
++    /// Wait atomically against the observed sequence, including notifications
++    /// that arrived before this call. The timeout services polled subscriptions.
++    pub(super) fn wait_after(&self, sequence: u64, timeout: std::time::Duration) {
++        if let Ok(state) = self.inner.lock() {
++            let _ = self
++                .changed
++                .wait_timeout_while(state, timeout, |state| state.next_sequence == sequence);
++        }
+     }
+ 
+     pub fn events_after(&self, sequence: u64) -> Vec<(u64, crate::api::schema::EventEnvelope)> {
+@@ -124,4 +136,19 @@ mod tests {
+             Err(EventHistoryError::Unavailable)
+         );
+     }
++
++    #[test]
++    fn notification_between_read_and_wait_is_not_lost() {
++        let hub = EventHub::default();
++        let observed = hub.current_sequence();
++        hub.push(event());
++        let (done, received) = std::sync::mpsc::channel();
++        std::thread::spawn(move || {
++            hub.wait_after(observed, std::time::Duration::from_secs(30));
++            done.send(()).unwrap();
++        });
++        received
++            .recv_timeout(std::time::Duration::from_secs(2))
++            .unwrap();
++    }
+ }
+diff --git a/src/api/mod.rs b/src/api/mod.rs
+index 86f90da..3b982e8 100644
+--- a/src/api/mod.rs
++++ b/src/api/mod.rs
+@@ -4,6 +4,7 @@ pub mod schema;
+ mod server;
+ mod status;
+ mod subscriptions;
++mod terminal_stream;
+ mod wait;
+ 
+ pub use event_hub::EventHub;
+@@ -81,6 +82,9 @@ pub(crate) fn request_changes_ui(request: &Request) -> bool {
+ }
+ 
+ pub struct ApiRequestMessage {
++    pub(crate) terminal_observer: Option<
++        std::sync::mpsc::SyncSender<Result<crate::terminal::observation::TerminalObserver, String>>,
++    >,
+     pub request: Request,
+     pub respond_to: std::sync::mpsc::Sender<String>,
+     pub response_write_complete: Option<std::sync::mpsc::Receiver<()>>,
+diff --git a/src/api/schema.rs b/src/api/schema.rs
+index 439ed33..ef793e6 100644
+--- a/src/api/schema.rs
++++ b/src/api/schema.rs
+@@ -11,6 +11,7 @@ pub mod response;
+ pub mod server;
+ pub mod session;
+ pub mod tabs;
++pub mod terminals;
+ pub mod workspaces;
+ pub mod worktrees;
+ 
+@@ -25,6 +26,7 @@ pub use response::*;
+ pub use server::*;
+ pub use session::*;
+ pub use tabs::*;
++pub use terminals::*;
+ pub use workspaces::*;
+ pub use worktrees::*;
+ 
+@@ -45,6 +47,10 @@ pub struct Request {
+ // the simple serde shape and avoids boxing churn across every caller.
+ #[allow(clippy::large_enum_variant)]
+ pub enum Method {
++    #[serde(rename = "terminal.state.subscribe")]
++    TerminalStateSubscribe(TerminalStateParams),
++    #[serde(rename = "terminal.history.read")]
++    TerminalHistoryRead(TerminalHistoryParams),
+     #[serde(rename = "ping")]
+     Ping(PingParams),
+     #[serde(rename = "server.stop")]
+diff --git a/src/api/schema/server.rs b/src/api/schema/server.rs
+index 1adb62f..cd98ba0 100644
+--- a/src/api/schema/server.rs
++++ b/src/api/schema/server.rs
+@@ -21,6 +21,12 @@ pub struct ServerSshAgentRegisterParams {
+ 
+ #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+ pub struct ServerCapabilities {
++    /// Versioned, read-only runtime terminal state and history API.
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub terminal_state_version: Option<u32>,
++    /// Semantic pane input on a bound direct terminal controller.
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub terminal_input_version: Option<u32>,
+     pub live_handoff: bool,
+     #[serde(default)]
+     pub detached_server_daemon: bool,
+diff --git a/src/api/schema/terminals.rs b/src/api/schema/terminals.rs
+new file mode 100644
+index 0000000..3da1f87
+--- /dev/null
++++ b/src/api/schema/terminals.rs
+@@ -0,0 +1,19 @@
++use serde::{Deserialize, Serialize};
++
++#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
++#[serde(deny_unknown_fields)]
++pub struct TerminalStateParams {
++    pub terminal_id: String,
++}
++
++#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
++#[serde(deny_unknown_fields)]
++pub struct TerminalHistoryParams {
++    pub terminal_id: String,
++    pub boot_id: String,
++    pub revision: u64,
++    #[serde(default)]
++    pub history_epoch: Option<u64>,
++    pub start: usize,
++    pub limit: usize,
++}
+diff --git a/src/api/schema/tests.rs b/src/api/schema/tests.rs
+index 3b43133..350ef3a 100644
+--- a/src/api/schema/tests.rs
++++ b/src/api/schema/tests.rs
+@@ -727,6 +727,8 @@ fn success_response_round_trips() {
+                 surface_interest: true,
+                 health_check: true,
+                 ssh_agent_registration: false,
++                terminal_state_version: None,
++                terminal_input_version: None,
+             }),
+         },
+     };
+diff --git a/src/api/server.rs b/src/api/server.rs
+index 0a4cfa6..cc0f209 100644
+--- a/src/api/server.rs
++++ b/src/api/server.rs
+@@ -75,6 +75,8 @@ fn default_capabilities() -> Option<ServerCapabilities> {
+         surface_interest: true,
+         health_check: true,
+         ssh_agent_registration: false,
++        terminal_state_version: Some(1),
++        terminal_input_version: Some(1),
+     })
+ }
+ 
+@@ -382,6 +384,17 @@ fn handle_connection_with_stop(
+     crate::logging::api_request_started(&request_id, method, changes_ui);
+ 
+     match request.method {
++        method @ (Method::TerminalStateSubscribe(_) | Method::TerminalHistoryRead(_)) => {
++            crate::api::terminal_stream::serve(
++                stream,
++                Request {
++                    id: request_id,
++                    method,
++                },
++                api_tx,
++                running,
++            )
++        }
+         #[cfg(unix)]
+         Method::ServerSshAgentRegister(params) => {
+             let lease = ssh_agents
+@@ -688,6 +701,8 @@ pub(crate) fn api_method_name(method: &Method) -> &'static str {
+         Method::PaneReleaseAgent(_) => "pane.release_agent",
+         Method::PaneClose(_) => "pane.close",
+         Method::PopupClose(_) => "popup.close",
++        Method::TerminalStateSubscribe(_) => "terminal.state.subscribe",
++        Method::TerminalHistoryRead(_) => "terminal.history.read",
+         Method::EventsSubscribe(_) => "events.subscribe",
+         Method::EventsWait(_) => "events.wait",
+         Method::PaneWaitForOutput(_) => "pane.wait_for_output",
+@@ -773,7 +788,7 @@ fn read_initial_request_line_with_limits(
+                         "timed out reading api request",
+                     ));
+                 }
+-                std::thread::sleep(CONNECTION_POLL_INTERVAL);
++                crate::platform::wait_client_stream_readable(stream)?;
+             }
+         }
+     };
+@@ -959,6 +974,7 @@ fn stream_subscriptions(
+     }
+ 
+     loop {
++        let observed_sequence = event_hub.current_sequence();
+         if should_stop_connection(&mut stream, running)? {
+             return Ok(());
+         }
+@@ -989,7 +1005,7 @@ fn stream_subscriptions(
+                 }
+             }
+         }
+-        std::thread::sleep(CONNECTION_POLL_INTERVAL);
++        event_hub.wait_after(observed_sequence, CONNECTION_POLL_INTERVAL);
+     }
+ }
+ 
+@@ -1067,6 +1083,7 @@ fn dispatch_to_app(
+     let request_id = request.id.clone();
+     let (respond_to, response_rx) = std::sync::mpsc::channel();
+     if let Err(err) = api_tx.send(ApiRequestMessage {
++        terminal_observer: None,
+         request,
+         respond_to,
+         response_write_complete,
+@@ -1500,6 +1517,8 @@ mod tests {
+                 surface_interest: true,
+                 health_check: true,
+                 ssh_agent_registration: false,
++                terminal_state_version: None,
++                terminal_input_version: None,
+             }),
+             None,
+             None,
+diff --git a/src/api/terminal_stream.rs b/src/api/terminal_stream.rs
+new file mode 100644
+index 0000000..3dfe329
+--- /dev/null
++++ b/src/api/terminal_stream.rs
+@@ -0,0 +1,124 @@
++//! Connection-scoped, versioned terminal state API. A blocked socket cannot
++//! hold the terminal lock or accumulate an unbounded output queue.
++use crate::api::schema::{Method, Request};
++use crate::api::{ApiRequestMessage, ApiRequestSender};
++use crate::ipc::{local_stream_peer_closed, LocalStream};
++use crate::terminal::observation::TerminalSnapshot;
++use std::io::{self, Write};
++use std::sync::{
++    atomic::{AtomicBool, Ordering},
++    mpsc, Arc,
++};
++use std::time::{Duration, Instant};
++
++fn write(stream: &mut LocalStream, value: &impl serde::Serialize) -> io::Result<()> {
++    // Serializing directly to a socket would issue a write for every JSON
++    // token/cell. Bound the staging buffer without introducing a frame queue.
++    let mut writer = io::BufWriter::with_capacity(64 * 1024, stream);
++    serde_json::to_writer(&mut writer, value)?;
++    writer.write_all(b"\n")?;
++    writer.flush()
++}
++
++pub(super) fn serve(
++    mut stream: LocalStream,
++    request: Request,
++    api: &ApiRequestSender,
++    running: &Arc<AtomicBool>,
++) -> io::Result<()> {
++    let id = request.id.clone();
++    let history = match &request.method {
++        Method::TerminalHistoryRead(params) => Some(params.clone()),
++        _ => None,
++    };
++    let (reply, observation) = mpsc::sync_channel(1);
++    let (respond_to, _unused) = mpsc::channel();
++    api.send(ApiRequestMessage {
++        request,
++        respond_to,
++        response_write_complete: None,
++        terminal_observer: Some(reply),
++    })
++    .map_err(|_| io::Error::other("runtime unavailable"))?;
++    let observer = match observation.recv_timeout(Duration::from_secs(5)) {
++        Ok(Ok(observer)) => observer,
++        error => {
++            return write(
++                &mut stream,
++                &serde_json::json!({"id":id, "error":{
++                "code":"terminal_unavailable", "message":match error {
++                    Ok(Err(message)) => message, _ => "runtime unavailable".to_string()
++                }}}),
++            )
++        }
++    };
++    if let Some(params) = history {
++        let result = match observer.history(
++            &params.boot_id,
++            params.revision,
++            params.history_epoch,
++            params.start,
++            params.limit,
++        ) {
++            Ok(rows) => serde_json::json!({"id":id,"result":{"type":"terminal_history","version":1,
++                "terminal_id":observer.terminal_id,"boot_id":observer.boot_id,"revision":params.revision,"history_epoch":params.history_epoch,"start":params.start,"content":rows}}),
++            Err(message) => {
++                serde_json::json!({"id":id,"error":{"code":"history_unavailable","message":message}})
++            }
++        };
++        return write(&mut stream, &result);
++    }
++    let mut previous: Option<Arc<TerminalSnapshot>> = None;
++    let mut last_sent = None::<Instant>;
++    while running.load(Ordering::Relaxed)
++        && !observer.closed()
++        && !local_stream_peer_closed(&mut stream)?
++    {
++        // Capture the wake generation before reading to avoid losing PTY output
++        // arriving between the snapshot and the condition-variable wait.
++        let generation = observer.generation();
++        if let Some(sent) = last_sent {
++            let remaining = Duration::from_millis(8).saturating_sub(sent.elapsed());
++            if !remaining.is_zero() {
++                std::thread::sleep(remaining);
++            }
++        }
++        let snapshot = observer.snapshot().map_err(io::Error::other)?;
++        if let Some(snapshot) = snapshot.filter(|next| {
++            previous
++                .as_ref()
++                .is_none_or(|old| old.revision != next.revision)
++        }) {
++            let reset = previous.as_ref().is_none_or(|old| {
++                old.cols != snapshot.cols
++                    || old.rows != snapshot.rows
++                    || old.alternate_screen != snapshot.alternate_screen
++            });
++            let changes: Vec<_> = snapshot
++                .content
++                .iter()
++                .enumerate()
++                .filter(|(row, cells)| {
++                    reset || previous.as_ref().and_then(|old| old.content.get(*row)) != Some(*cells)
++                })
++                .collect();
++            write(
++                &mut stream,
++                &serde_json::json!({"id":id,"result":{
++                    "type":"terminal_state","version":1,"terminal_id":observer.terminal_id,"boot_id":observer.boot_id,
++                    "revision":snapshot.revision,"base_revision":if reset {None} else {previous.as_ref().map(|s| s.revision)},
++                    "cols":snapshot.cols,"rows":snapshot.rows,"total_rows":snapshot.total_rows,"first_row":snapshot.first_row,
++                    "row_offset":snapshot.row_offset,"history_epoch":snapshot.history_epoch,
++                    "history_start":snapshot.history_start,"history":snapshot.history,
++                    "cursor":snapshot.cursor,"cursor_shape":snapshot.cursor_shape,"alternate_screen":snapshot.alternate_screen,
++                    "mouse_tracking":snapshot.mouse_tracking,"mouse_sgr":snapshot.mouse_sgr,"mouse_pixels":snapshot.mouse_pixels,
++                    "bracketed_paste":snapshot.bracketed_paste,"changes":changes
++                }}),
++            )?;
++            previous = Some(snapshot);
++            last_sent = Some(Instant::now());
++        }
++        observer.wait(generation, Duration::from_millis(250));
++    }
++    Ok(())
++}
+diff --git a/src/app/api.rs b/src/app/api.rs
+index dd87c50..4827bac 100644
+--- a/src/app/api.rs
++++ b/src/app/api.rs
+@@ -946,6 +946,13 @@ impl App {
+                     result: ResponseResult::Ok {},
+                 }
+             }
++            Method::TerminalStateSubscribe(_) | Method::TerminalHistoryRead(_) => {
++                return responses::encode_error(
++                    request.id,
++                    "connection_local_only",
++                    "terminal observation requires the runtime JSON API",
++                );
++            }
+             Method::ServerSshAgentRegister(_) => {
+                 return responses::encode_error(
+                     request.id,
+diff --git a/src/app/mod.rs b/src/app/mod.rs
+index 6effa3a..2d01c4e 100644
+--- a/src/app/mod.rs
++++ b/src/app/mod.rs
+@@ -746,6 +746,14 @@ impl App {
+                 .and_then(|ws| ws.focused_pane_id().map(|pane_id| (idx, pane_id)))
+         });
+         app.refresh_restored_workspace_git_metadata();
++        // Imported PTYs already have authoritative sizes. Populate view metadata
++        // without the ordinary empty-view startup resize before clients reconnect.
++        let (cols, rows) = app.state.headless_size;
++        crate::ui::compute_view_without_resizing_panes(
++            &mut app.state,
++            &app.terminal_runtimes,
++            ratatui::layout::Rect::new(0, 0, cols, rows),
++        );
+         Ok(app)
+     }
+ 
+diff --git a/src/build_info.rs b/src/build_info.rs
+index 1fdedfb..068974f 100644
+--- a/src/build_info.rs
++++ b/src/build_info.rs
+@@ -20,6 +20,10 @@ pub fn version() -> String {
+     }
+ }
+ 
++pub fn is_swift() -> bool {
++    BASE_VERSION.contains("-swift.")
++}
++
+ pub fn is_preview() -> bool {
+     channel() == "preview"
+ }
+diff --git a/src/cli/status.rs b/src/cli/status.rs
+index 826c8ea..58204e3 100644
+--- a/src/cli/status.rs
++++ b/src/cli/status.rs
+@@ -425,6 +425,8 @@ mod tests {
+                 surface_interest: true,
+                 health_check: true,
+                 ssh_agent_registration: false,
++                terminal_state_version: None,
++                terminal_input_version: None,
+             }),
+         }
+     }
+diff --git a/src/handoff_runtime.rs b/src/handoff_runtime.rs
+index 12481f6..2bd3a95 100644
+--- a/src/handoff_runtime.rs
++++ b/src/handoff_runtime.rs
+@@ -12,6 +12,8 @@ use serde::{Deserialize, Serialize};
+ #[derive(Debug, Clone, Serialize, Deserialize)]
+ pub(crate) struct HandoffRuntimeState {
+     pub pane_id: u32,
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub terminal_id: Option<crate::terminal::TerminalId>,
+     pub child_pid: u32,
+     pub rows: u16,
+     pub cols: u16,
+@@ -27,6 +29,9 @@ pub(crate) struct HandoffRuntimeState {
+     pub terminal_title: Option<String>,
+     #[serde(default, skip_serializing_if = "Option::is_none")]
+     pub initial_history_ansi: Option<String>,
++    /// Complete Ghostty snapshot in a private file retained until restore ACK.
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub terminal_snapshot: Option<std::path::PathBuf>,
+     #[serde(default, skip_serializing_if = "Option::is_none")]
+     pub agent_state: Option<crate::terminal::state::HandoffAgentState>,
+ }
+diff --git a/src/pane.rs b/src/pane.rs
+index f80baeb..780f7c3 100644
+--- a/src/pane.rs
++++ b/src/pane.rs
+@@ -44,9 +44,10 @@ use self::agent_detection::{
+ use self::background_agent::{AgentJobStatus, AgentJobTracker};
+ #[cfg(test)]
+ pub(crate) use self::terminal::test_encode_key_for_app;
++use self::terminal::GhosttyPaneTerminal;
+ #[cfg(unix)]
+ pub use self::terminal::InputState;
+-use self::terminal::{GhosttyPaneTerminal, PaneTerminal};
++pub(crate) use self::terminal::PaneTerminal;
+ pub(crate) use self::terminal::{
+     TerminalCompressionStep, TerminalDirtyPatch, TerminalDirtyPatchOutcome, TerminalReadSnapshot,
+     TerminalSearchDirection, TerminalSearchWindow, TerminalTextPoint, TerminalWordMotion,
+@@ -1701,6 +1702,7 @@ pub enum WheelRouting {
+ 
+ impl Drop for PaneRuntime {
+     fn drop(&mut self) {
++        self.terminal.observation.close();
+         // Abort detection task immediately and terminate the owned session.
+         // The PTY actor shuts down before the process/session policy runs.
+         if let Some(handle) = &self.detect_handle {
+@@ -2297,6 +2299,7 @@ impl PaneRuntime {
+         let (rows, cols, cell_width_px, cell_height_px) = self.current_size.get();
+         crate::handoff_runtime::HandoffRuntimeState {
+             pane_id,
++            terminal_id: None,
+             child_pid,
+             rows,
+             cols,
+@@ -2310,10 +2313,16 @@ impl PaneRuntime {
+             input_state: self.input_state(),
+             terminal_title: self.terminal_title(),
+             initial_history_ansi: None,
++            terminal_snapshot: None,
+             agent_state: None,
+         }
+     }
+ 
++    #[cfg(unix)]
++    pub fn handoff_snapshot(&self) -> std::io::Result<Vec<u8>> {
++        self.terminal.handoff_snapshot()
++    }
++
+     #[cfg(unix)]
+     pub fn handoff_history_ansi(&self) -> Option<String> {
+         if self.terminal.alternate_screen_active() {
+@@ -2511,6 +2520,7 @@ impl PaneRuntime {
+         let crate::handoff_runtime::ImportedHandoffRuntime { master_fd, state } = import;
+         let crate::handoff_runtime::HandoffRuntimeState {
+             pane_id,
++            terminal_id: _,
+             child_pid,
+             rows,
+             cols,
+@@ -2521,6 +2531,7 @@ impl PaneRuntime {
+             input_state,
+             terminal_title,
+             initial_history_ansi,
++            terminal_snapshot,
+             agent_state: _,
+         } = state;
+         let pane_id = PaneId::from_raw(pane_id);
+@@ -2529,30 +2540,50 @@ impl PaneRuntime {
+         let master_fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(master_fd) };
+ 
+         let (response_tx, _response_rx) = mpsc::channel::<Bytes>(1);
+-        let mut terminal = crate::ghostty::Terminal::new(cols, rows, scrollback_limit_bytes)
+-            .map_err(|e| std::io::Error::other(e.to_string()))?;
+-        terminal
+-            .resize(cols, rows, cell_width_px, cell_height_px)
+-            .map_err(|e| std::io::Error::other(e.to_string()))?;
+-        if crate::kitty_graphics::is_enabled() {
++        let restored_snapshot = terminal_snapshot.is_some();
++        let mut terminal = if let Some(path) = terminal_snapshot {
++            crate::ghostty::Terminal::from_snapshot(
++                &std::fs::read(path)?,
++                cols,
++                rows,
++                scrollback_limit_bytes,
++                (cell_width_px, cell_height_px),
++            )
++        } else {
++            crate::ghostty::Terminal::new(cols, rows, scrollback_limit_bytes)
++        }
++        .map_err(|e| std::io::Error::other(e.to_string()))?;
++        if !restored_snapshot {
++            terminal
++                .resize(cols, rows, cell_width_px, cell_height_px)
++                .map_err(|e| std::io::Error::other(e.to_string()))?;
++        }
++        if !restored_snapshot && crate::kitty_graphics::is_enabled() {
+             terminal
+                 .enable_kitty_graphics()
+                 .map_err(|e| std::io::Error::other(e.to_string()))?;
+         }
+         let pane_terminal = GhosttyPaneTerminal::new(terminal, response_tx.clone())?;
+-        pane_terminal.apply_host_terminal_theme(host_terminal_theme);
+-        let _ = pane_terminal.apply_host_terminal_appearance(host_terminal_appearance);
+-        pane_terminal.seed_terminal_title(terminal_title);
+-        if let Some(input_state) = input_state {
+-            pane_terminal.seed_handoff_input_state(input_state);
+-        }
+-        if let Some(ansi) = keyboard_protocol_ansi.as_deref() {
+-            pane_terminal.seed_keyboard_protocol_ansi(ansi);
++        if restored_snapshot {
++            pane_terminal
++                .restore_snapshot_metadata(host_terminal_theme, keyboard_protocol_ansi.as_deref());
+         } else {
+-            pane_terminal.seed_keyboard_protocol_flags(keyboard_protocol_flags);
++            pane_terminal.apply_host_terminal_theme(host_terminal_theme);
++            let _ = pane_terminal.apply_host_terminal_appearance(host_terminal_appearance);
+         }
+-        if let Some(ansi) = initial_history_ansi.as_deref() {
+-            pane_terminal.seed_history_ansi(ansi);
++        pane_terminal.seed_terminal_title(terminal_title);
++        if !restored_snapshot {
++            if let Some(input_state) = input_state {
++                pane_terminal.seed_handoff_input_state(input_state);
++            }
++            if let Some(ansi) = keyboard_protocol_ansi.as_deref() {
++                pane_terminal.seed_keyboard_protocol_ansi(ansi);
++            } else {
++                pane_terminal.seed_keyboard_protocol_flags(keyboard_protocol_flags);
++            }
++            if let Some(ansi) = initial_history_ansi.as_deref() {
++                pane_terminal.seed_history_ansi(ansi);
++            }
+         }
+         let terminal = Arc::new(PaneTerminal::new(pane_terminal));
+         let compression = TerminalCompressionTask::spawn(pane_id, terminal.clone());
+@@ -3451,6 +3482,21 @@ impl PaneRuntime {
+         result
+     }
+ 
++    pub(crate) fn observe(
++        &self,
++        terminal_id: String,
++        boot_id: String,
++    ) -> crate::terminal::observation::TerminalObserver {
++        crate::terminal::observation::TerminalObserver::new(
++            terminal_id,
++            boot_id,
++            Arc::downgrade(&self.terminal),
++            self.content_write_lock.clone(),
++            self.content_seq.clone(),
++            self.terminal.observation.clone(),
++        )
++    }
++
+     pub(crate) fn terminal_dimensions(&self) -> Option<(u16, u16)> {
+         self.terminal.dimensions()
+     }
+diff --git a/src/pane/terminal.rs b/src/pane/terminal.rs
+index d4b7ef5..9130f43 100644
+--- a/src/pane/terminal.rs
++++ b/src/pane/terminal.rs
+@@ -208,25 +208,29 @@ pub(crate) struct GhosttyPaneCore {
+     pub initial_default_background: Option<crate::ghostty::RgbColor>,
+     pub host_terminal_theme: crate::terminal_theme::TerminalTheme,
+     pub transient_default_color_owner_pgid: Option<u32>,
+-    pub default_color_tracker: DefaultColorOscTracker,
+-    pub default_color_event_tracker: DefaultColorEventTracker,
++    pub(super) default_color_tracker: DefaultColorOscTracker,
++    pub(super) default_color_event_tracker: DefaultColorEventTracker,
+     c1_xtgettcap_tracker: C1XtgettcapQueryTracker,
+     pub child_default_foreground_changed: bool,
+     pub child_default_background_changed: bool,
+-    pub osc_debug_tracker: OscDebugTracker,
+-    pub agent_osc_state: AgentOscStateTracker,
++    pub(super) osc_debug_tracker: OscDebugTracker,
++    pub(super) agent_osc_state: AgentOscStateTracker,
+     decscusr_tracker: DecscusrTracker,
+     cursor_settle_state: CursorPositionSettleState,
+     windows_powershell_prompt_cwd_reporting: bool,
+ }
+ 
+ pub(crate) struct PaneTerminal {
++    pub(crate) observation: Arc<crate::terminal::observation::ObservationSignal>,
+     pub(crate) ghostty: GhosttyPaneTerminal,
+ }
+ 
+ impl PaneTerminal {
+     pub(crate) fn new(ghostty: GhosttyPaneTerminal) -> Self {
+-        Self { ghostty }
++        Self {
++            ghostty,
++            observation: Arc::default(),
++        }
+     }
+ 
+     pub fn process_pty_bytes(
+@@ -236,8 +240,11 @@ impl PaneTerminal {
+         bytes: &[u8],
+         response_writer: &mpsc::Sender<Bytes>,
+     ) -> ProcessBytesResult {
+-        self.ghostty
+-            .process_pty_bytes(pane_id, shell_pid, bytes, response_writer)
++        let result = self
++            .ghostty
++            .process_pty_bytes(pane_id, shell_pid, bytes, response_writer);
++        self.observation.changed();
++        result
+     }
+ 
+     pub fn resize(
+@@ -247,8 +254,11 @@ impl PaneTerminal {
+         cell_width_px: u32,
+         cell_height_px: u32,
+     ) -> Vec<Bytes> {
+-        self.ghostty
+-            .resize(rows, cols, cell_width_px, cell_height_px)
++        let result = self
++            .ghostty
++            .resize(rows, cols, cell_width_px, cell_height_px);
++        self.observation.changed();
++        result
+     }
+ 
+     pub fn scroll_up(&self, lines: usize) {
+@@ -264,7 +274,9 @@ impl PaneTerminal {
+     }
+ 
+     pub fn clear_screen(&self) -> Result<(), String> {
+-        self.ghostty.clear_screen()
++        let result = self.ghostty.clear_screen();
++        self.observation.changed();
++        result
+     }
+ 
+     pub fn set_scroll_offset_from_bottom(&self, lines: usize) {
+@@ -636,6 +648,11 @@ impl PaneTerminal {
+         self.ghostty.keyboard_protocol().unwrap_or(fallback)
+     }
+ 
++    #[cfg(unix)]
++    pub fn handoff_snapshot(&self) -> std::io::Result<Vec<u8>> {
++        self.ghostty.handoff_snapshot()
++    }
++
+     #[cfg(unix)]
+     pub fn kitty_keyboard_state_ansi(&self) -> Option<String> {
+         self.ghostty
+@@ -1575,6 +1592,31 @@ impl GhosttyPaneTerminal {
+             .unwrap_or_default()
+     }
+ 
++    #[cfg(unix)]
++    pub fn restore_snapshot_metadata(
++        &self,
++        theme: crate::terminal_theme::TerminalTheme,
++        keyboard_ansi: Option<&str>,
++    ) {
++        if let Ok(mut core) = self.core.lock() {
++            core.host_terminal_theme = theme;
++            if let Some(ansi) = keyboard_ansi {
++                core.kitty_keyboard.observe(ansi.as_bytes());
++            }
++        }
++    }
++
++    #[cfg(unix)]
++    pub fn handoff_snapshot(&self) -> std::io::Result<Vec<u8>> {
++        let core = self
++            .core
++            .lock()
++            .map_err(|_| std::io::Error::other("terminal lock poisoned"))?;
++        core.terminal
++            .snapshot()
++            .map_err(|err| std::io::Error::other(err.to_string()))
++    }
++
+     pub fn seed_history_ansi(&self, ansi: &str) {
+         if ansi.is_empty() {
+             return;
+diff --git a/src/persist/restore.rs b/src/persist/restore.rs
+index a8c6fd3..9602d9a 100644
+--- a/src/persist/restore.rs
++++ b/src/persist/restore.rs
+@@ -581,6 +581,10 @@ fn restore_tab(
+         let imported_runtime = old_pane_id.and_then(|old_id| imported_panes.remove(&old_id));
+         let was_imported = imported_runtime.is_some();
+         #[cfg(unix)]
++        let imported_terminal_id = imported_runtime
++            .as_ref()
++            .and_then(|imported| imported.state.terminal_id.clone());
++        #[cfg(unix)]
+         let handoff_agent_state = imported_runtime
+             .as_ref()
+             .and_then(|imported| imported.state.agent_state.clone());
+@@ -686,6 +690,9 @@ fn restore_tab(
+ 
+         match runtime_result {
+             Ok(runtime) => {
++                #[cfg(unix)]
++                let terminal_id = imported_terminal_id.unwrap_or_else(TerminalId::alloc);
++                #[cfg(not(unix))]
+                 let terminal_id = TerminalId::alloc();
+                 let mut terminal = TerminalState::new(terminal_id.clone(), cwd.clone());
+                 if was_imported {
+@@ -1992,6 +1999,8 @@ mod tests {
+                 .pause_handoff_reader(std::time::Duration::from_secs(2))
+                 .unwrap();
+             let mut state = runtime.handoff_runtime_state(pane_id.raw());
++            let original_terminal_id = terminals.values().next().unwrap().id.clone();
++            state.terminal_id = Some(original_terminal_id.clone());
+             state.agent_state = terminals.values().next().unwrap().handoff_agent_state();
+             let state = serde_json::from_value(serde_json::to_value(state).unwrap()).unwrap();
+             let mut imports = HashMap::from([(
+@@ -2015,6 +2024,7 @@ mod tests {
+             drop(restored_runtimes);
+             drop(runtimes);
+             let terminal = restored_terminals.values_mut().next().unwrap();
++            assert_eq!(terminal.id, original_terminal_id);
+             assert_eq!(terminal.state, state_before_handoff);
+             terminal.set_detected_state(Some(crate::detect::Agent::Pi), AgentState::Idle);
+             assert_eq!(
+diff --git a/src/server/client_transport.rs b/src/server/client_transport.rs
+index 0536fe7..1b51b88 100644
+--- a/src/server/client_transport.rs
++++ b/src/server/client_transport.rs
+@@ -462,6 +462,8 @@ pub(crate) enum ServerEvent {
+         target: String,
+         takeover: bool,
+     },
++    /// Configure drawing before binding a direct terminal controller.
++    ClientTerminalFrames { client_id: u64, enabled: bool },
+     /// A direct terminal attach client requested scrollback movement.
+     ClientAttachScroll {
+         client_id: u64,
+@@ -1338,6 +1340,17 @@ fn client_read_loop_with_endpoint_controls(
+                     },
+                 }
+             }
++            ClientMessage::EndpointControl { kind, data }
++                if kind == "terminal.control.configure" =>
++            {
++                let Ok(value) = serde_json::from_str::<serde_json::Value>(&data) else {
++                    continue;
++                };
++                let Some(enabled) = value.get("frames").and_then(serde_json::Value::as_bool) else {
++                    continue;
++                };
++                ServerEvent::ClientTerminalFrames { client_id, enabled }
++            }
+             ClientMessage::EndpointControl { kind, data }
+                 if kind == crate::protocol::endpoint::PRESENTATION_EFFECTS_SYNC_KIND =>
+             {
+diff --git a/src/server/clients.rs b/src/server/clients.rs
+index 65e875b..a506b22 100644
+--- a/src/server/clients.rs
++++ b/src/server/clients.rs
+@@ -26,6 +26,7 @@ pub(crate) type RenderTarget = (
+ 
+ #[derive(Clone, Debug, PartialEq, Eq)]
+ pub(crate) enum ClientShellInputTarget {
++    DirectTerminal(String),
+     Pane(String),
+     Popup(String),
+ }
+@@ -135,6 +136,8 @@ pub(crate) struct ClientConnection {
+     pub(crate) mode: ClientConnectionMode,
+     /// The client's terminal size after clamping.
+     pub(crate) terminal_size: (u16, u16),
++    /// Whether a direct terminal connection also receives rendered ANSI frames.
++    pub(crate) terminal_frames: bool,
+     /// Pixel size of one client terminal cell.
+     pub(crate) cell_size: crate::kitty_graphics::HostCellSize,
+     /// Monotonic activity stamp used to choose the fallback foreground client.
+@@ -225,6 +228,7 @@ impl ClientConnection {
+     ) -> Self {
+         Self {
+             mode,
++            terminal_frames: true,
+             terminal_size,
+             cell_size,
+             last_activity,
+@@ -508,11 +512,12 @@ pub(crate) fn render_targets(
+         .filter(|(_, client)| {
+             client.writer.is_some()
+                 && (client.is_shell_client()
+-                    || matches!(
+-                        client.mode,
+-                        ClientConnectionMode::TerminalAttach { .. }
+-                            | ClientConnectionMode::TerminalObserve { .. }
+-                    ))
++                    || client.terminal_frames
++                        && matches!(
++                            client.mode,
++                            ClientConnectionMode::TerminalAttach { .. }
++                                | ClientConnectionMode::TerminalObserve { .. }
++                        ))
+         })
+         .map(|(&client_id, client)| {
+             (
+diff --git a/src/server/handoff.rs b/src/server/handoff.rs
+index efe554e..4aeb697 100644
+--- a/src/server/handoff.rs
++++ b/src/server/handoff.rs
+@@ -29,6 +29,39 @@ const OWNED_ACK_TIMEOUT: Duration = Duration::from_millis(500);
+ const FDS_PER_MESSAGE: usize = 64;
+ #[cfg(unix)]
+ pub(crate) const MAX_REPLAY_BYTES_PER_PANE: usize = 8 * 1024;
++/// Private files keep full terminal snapshots out of the bounded JSON manifest.
++#[cfg(unix)]
++pub(crate) struct TerminalSnapshots(PathBuf);
++
++#[cfg(unix)]
++impl TerminalSnapshots {
++    pub fn new(socket: &Path) -> io::Result<Self> {
++        use std::os::unix::fs::DirBuilderExt;
++        let path = socket.with_extension("snapshots");
++        std::fs::DirBuilder::new().mode(0o700).create(&path)?;
++        Ok(Self(path))
++    }
++
++    pub fn write(&self, pane_id: u32, bytes: &[u8]) -> io::Result<PathBuf> {
++        use std::os::unix::fs::OpenOptionsExt;
++        let path = self.0.join(format!("{pane_id}.snapshot"));
++        let mut file = std::fs::OpenOptions::new()
++            .create_new(true)
++            .write(true)
++            .mode(0o600)
++            .open(&path)?;
++        file.write_all(bytes)?;
++        Ok(path)
++    }
++}
++
++#[cfg(unix)]
++impl Drop for TerminalSnapshots {
++    fn drop(&mut self) {
++        let _ = std::fs::remove_dir_all(&self.0);
++    }
++}
++
+ #[cfg(unix)]
+ pub(crate) const COMMIT_TIMEOUT: Duration = READY_TIMEOUT;
+ 
+@@ -229,6 +262,112 @@ pub(crate) fn wait_owned_ack(stream: &mut UnixStream) {
+     }
+ }
+ 
++// Old runtimes do not export TerminalId. The controlled migration launcher
++// supplies a private, one-use map captured from that exact source instance.
++#[cfg(unix)]
++#[derive(Deserialize)]
++struct TerminalIdentityMap {
++    version: u32,
++    source_version: String,
++    source_protocol: u32,
++    source_pid: u32,
++    source_socket: PathBuf,
++    terminals: Vec<TerminalIdentity>,
++}
++
++#[cfg(unix)]
++#[derive(Deserialize)]
++struct TerminalIdentity {
++    child_pid: u32,
++    terminal_id: crate::terminal::TerminalId,
++}
++
++#[cfg(unix)]
++fn apply_terminal_identities(
++    manifest: &mut HandoffManifest,
++    socket_path: &Path,
++    identities: TerminalIdentityMap,
++) -> io::Result<()> {
++    let mismatch = || io::Error::other("handoff terminal identity map does not match source");
++    if identities.version != 1
++        || identities.source_version != manifest.source_version
++        || identities.source_protocol != manifest.source_protocol
++        || identities.source_socket.parent() != socket_path.parent()
++        || socket_path.file_name().and_then(|name| name.to_str())
++            != Some(format!("herdr-handoff-{}.sock", identities.source_pid).as_str())
++        || identities.terminals.len() != manifest.panes.len()
++    {
++        return Err(mismatch());
++    }
++    let by_pid: std::collections::HashMap<_, _> = identities
++        .terminals
++        .into_iter()
++        .map(|identity| (identity.child_pid, identity.terminal_id))
++        .collect();
++    if by_pid.len() != manifest.panes.len() {
++        return Err(mismatch());
++    }
++    let mut seen = std::collections::HashSet::new();
++    // Validate the entire mapping before assigning any identity.
++    for pane in &manifest.panes {
++        let Some(identity) = by_pid.get(&pane.child_pid) else {
++            return Err(mismatch());
++        };
++        if !seen.insert(identity.clone())
++            || !identity.as_str().starts_with("term_")
++            || identity.as_str().len() > 128
++            || !identity.as_str()[5..]
++                .bytes()
++                .all(|byte| byte.is_ascii_hexdigit())
++            || identity.as_str().len() == 5
++            || pane
++                .terminal_id
++                .as_ref()
++                .is_some_and(|original| original != identity)
++        {
++            return Err(mismatch());
++        }
++    }
++    for pane in &mut manifest.panes {
++        pane.terminal_id = by_pid.get(&pane.child_pid).cloned();
++    }
++    Ok(())
++}
++
++#[cfg(unix)]
++fn restore_terminal_identities(
++    manifest: &mut HandoffManifest,
++    socket_path: &Path,
++) -> io::Result<()> {
++    if let Some(path) = std::env::var_os("SWIFT_HERDR_HANDOFF_IDENTITIES") {
++        std::env::remove_var("SWIFT_HERDR_HANDOFF_IDENTITIES");
++        let mut bytes = Vec::new();
++        std::fs::File::open(path)?
++            .take(8 * 1024 * 1024 + 1)
++            .read_to_end(&mut bytes)?;
++        if bytes.len() > 8 * 1024 * 1024 {
++            return Err(io::Error::other(
++                "handoff terminal identity map exceeds limit",
++            ));
++        }
++        let identities = serde_json::from_slice(&bytes).map_err(io::Error::other)?;
++        apply_terminal_identities(manifest, socket_path, identities)?;
++    }
++    let mut seen = std::collections::HashSet::new();
++    for identity in manifest
++        .panes
++        .iter()
++        .filter_map(|pane| pane.terminal_id.as_ref())
++    {
++        if !seen.insert(identity) {
++            return Err(io::Error::other(
++                "handoff contains duplicate terminal identity",
++            ));
++        }
++    }
++    Ok(())
++}
++
+ #[cfg(unix)]
+ pub(crate) fn receive(socket_path: &Path, token: &str) -> io::Result<ReceivedHandoff> {
+     let mut stream = UnixStream::connect(socket_path)?;
+@@ -237,7 +376,7 @@ pub(crate) fn receive(socket_path: &Path, token: &str) -> io::Result<ReceivedHan
+     stream.flush()?;
+ 
+     let manifest_line = read_line_unbuffered(&mut stream)?;
+-    let manifest: HandoffManifest =
++    let mut manifest: HandoffManifest =
+         serde_json::from_str(&manifest_line).map_err(io::Error::other)?;
+     if manifest.version != HANDOFF_VERSION {
+         return Err(io::Error::other(format!(
+@@ -266,6 +405,7 @@ pub(crate) fn receive(socket_path: &Path, token: &str) -> io::Result<ReceivedHan
+             crate::build_info::version()
+         )));
+     }
++    restore_terminal_identities(&mut manifest, socket_path)?;
+     stream.write_all(b"validated\n")?;
+     stream.flush()?;
+     let fds = recv_fds(&stream, manifest.panes.len())?;
+@@ -547,6 +687,68 @@ mod tests {
+         }
+     }
+ 
++    #[test]
++    fn legacy_terminal_identity_map_is_complete_unique_and_bound_to_source() {
++        let make_manifest = || {
++            let panes = serde_json::from_value(serde_json::json!([
++                {"pane_id":1,"child_pid":101,"rows":24,"cols":80,"cell_width_px":0,"cell_height_px":0},
++                {"pane_id":2,"child_pid":102,"rows":24,"cols":80,"cell_width_px":0,"cell_height_px":0}
++            ])).unwrap();
++            manifest_for(empty_snapshot(), panes, None, None, None, None)
++        };
++        let original = make_manifest();
++        let valid = serde_json::json!({"version":1,"source_version":original.source_version,
++            "source_protocol":original.source_protocol,"source_pid":55,"source_socket":"/tmp/fixture/herdr.sock",
++            "terminals":[{"child_pid":101,"terminal_id":"term_abc1"},{"child_pid":102,"terminal_id":"term_abc2"}]});
++        let socket = Path::new("/tmp/fixture/herdr-handoff-55.sock");
++        for invalid in [
++            {
++                let mut data = valid.clone();
++                data["terminals"][1]["child_pid"] = 103.into();
++                data
++            },
++            {
++                let mut data = valid.clone();
++                data["terminals"][1]["terminal_id"] = "term_abc1".into();
++                data
++            },
++            {
++                let mut data = valid.clone();
++                data["source_pid"] = 56.into();
++                data
++            },
++            {
++                let mut data = valid.clone();
++                data["source_version"] = "different".into();
++                data
++            },
++        ] {
++            let mut manifest = make_manifest();
++            assert!(apply_terminal_identities(
++                &mut manifest,
++                socket,
++                serde_json::from_value(invalid).unwrap()
++            )
++            .is_err());
++            assert!(manifest.panes.iter().all(|pane| pane.terminal_id.is_none()));
++        }
++        let mut manifest = make_manifest();
++        apply_terminal_identities(
++            &mut manifest,
++            socket,
++            serde_json::from_value(valid).unwrap(),
++        )
++        .unwrap();
++        assert_eq!(
++            manifest.panes[0].terminal_id.as_ref().unwrap().as_str(),
++            "term_abc1"
++        );
++        assert_eq!(
++            manifest.panes[1].terminal_id.as_ref().unwrap().as_str(),
++            "term_abc2"
++        );
++    }
++
+     #[test]
+     fn a_handoff_carries_an_api_set_window_title() {
+         let manifest = manifest_for(
+diff --git a/src/server/headless.rs b/src/server/headless.rs
+index cb2c619..ff63b43 100644
+--- a/src/server/headless.rs
++++ b/src/server/headless.rs
+@@ -1012,7 +1012,8 @@ impl HeadlessServer {
+                     };
+                     apply_client_pane_input_events(runtime, &[held.release])
+                 }
+-                ClientShellInputTarget::Popup(terminal_id) => {
++                ClientShellInputTarget::Popup(terminal_id)
++                | ClientShellInputTarget::DirectTerminal(terminal_id) => {
+                     let Some(runtime) = self.runtime_for_terminal_id_string(&terminal_id) else {
+                         continue;
+                     };
+@@ -1836,6 +1837,20 @@ impl HeadlessServer {
+         if let Some(runtime) = self.app.terminal_runtimes.get(&real_terminal_id) {
+             runtime.resize(rows, cols, cell_size.width_px, cell_size.height_px);
+         }
++        if self
++            .clients
++            .get(&client_id)
++            .is_some_and(|client| !client.terminal_frames)
++        {
++            self.send_to_client(
++                client_id,
++                ServerMessage::EndpointControl {
++                    kind: "terminal.control.ready".into(),
++                    data: serde_json::json!({"terminal_id":terminal_id,"cols":cols,"rows":rows})
++                        .to_string(),
++                },
++            );
++        }
+         true
+     }
+ 
+@@ -2055,6 +2070,14 @@ impl HeadlessServer {
+             ServerEvent::ClientObserveTerminal { client_id, target } => {
+                 self.observe_terminal_client(client_id, target)
+             }
++            ServerEvent::ClientTerminalFrames { client_id, enabled } => {
++                if self.client_is_pending_terminal_mode(client_id) {
++                    if let Some(client) = self.clients.get_mut(&client_id) {
++                        client.terminal_frames = enabled;
++                    }
++                }
++                false
++            }
+             ServerEvent::ClientControlTerminal {
+                 client_id,
+                 target,
+@@ -2362,6 +2385,45 @@ impl HeadlessServer {
+                 pane_id,
+                 events,
+             } => {
++                // The same semantic events may be used by a direct controller,
++                // but only for its already bound terminal. Observation and
++                // pending handshakes cannot use this path to acquire control.
++                let direct_target =
++                    self.clients
++                        .get(&client_id)
++                        .and_then(|client| match &client.mode {
++                            ClientConnectionMode::TerminalAttach { terminal_id } => {
++                                Some(terminal_id.clone())
++                            }
++                            _ => None,
++                        });
++                if let Some(terminal_id) = direct_target {
++                    if self.handoff_in_progress
++                        || self.resolve_terminal_target_id_string(&pane_id).as_deref()
++                            != Some(&terminal_id)
++                        || events.iter().any(|event| {
++                            matches!(event, protocol::ClientPaneInputEvent::Mouse { .. })
++                        })
++                    {
++                        return false;
++                    }
++                    if let Some(client) = self.clients.get_mut(&client_id) {
++                        client.track_shell_input(
++                            ClientShellInputTarget::DirectTerminal(terminal_id.clone()),
++                            &events,
++                        );
++                    }
++                    let Some(runtime) = self.runtime_for_terminal_id_string(&terminal_id) else {
++                        return false;
++                    };
++                    let mut forwarded = false;
++                    if let Err(err) =
++                        apply_client_terminal_input_events(runtime, &events, false, &mut forwarded)
++                    {
++                        warn!(client_id, terminal_id, err = %err, "direct semantic input failed");
++                    }
++                    return forwarded;
++                }
+                 if self.handoff_in_progress
+                     || !self
+                         .clients
+@@ -2918,6 +2980,25 @@ impl HeadlessServer {
+             return false;
+         }
+ 
++        if let Some(reply) = &msg.terminal_observer {
++            let terminal_id = match &msg.request.method {
++                api::schema::Method::TerminalStateSubscribe(params) => &params.terminal_id,
++                api::schema::Method::TerminalHistoryRead(params) => &params.terminal_id,
++                _ => {
++                    let _ = reply.send(Err("invalid observation request".into()));
++                    return false;
++                }
++            };
++            let result = self
++                .runtime_for_terminal_id_string(terminal_id)
++                .map(|runtime| {
++                    runtime.observe(terminal_id.clone(), self.client_shell_boot_id.clone())
++                })
++                .ok_or_else(|| "terminal not found".to_string());
++            let _ = reply.send(result);
++            return false;
++        }
++
+         let frozen_alt_screen_read = match self.alt_screen_read_conflict(&msg.request) {
+             AltScreenReadConflict::None => None,
+             AltScreenReadConflict::Frozen(snapshot) => Some(snapshot),
+diff --git a/src/server/headless/endpoint_requests.rs b/src/server/headless/endpoint_requests.rs
+index 6d2dd6b..4263fb0 100644
+--- a/src/server/headless/endpoint_requests.rs
++++ b/src/server/headless/endpoint_requests.rs
+@@ -124,6 +124,7 @@ impl HeadlessServer {
+             | self.handle_client_shell_api_request(
+                 client_id,
+                 api::ApiRequestMessage {
++                    terminal_observer: None,
+                     request: *request,
+                     respond_to,
+                     response_write_complete: None,
+diff --git a/src/server/headless/lifecycle.rs b/src/server/headless/lifecycle.rs
+index 8c6587f..41b03a2 100644
+--- a/src/server/headless/lifecycle.rs
++++ b/src/server/headless/lifecycle.rs
+@@ -45,6 +45,15 @@ impl HeadlessServer {
+             }
+         };
+ 
++        let terminal_snapshots = match crate::server::handoff::TerminalSnapshots::new(&socket_path)
++        {
++            Ok(directory) => directory,
++            Err(err) => {
++                self.rollback_handoff_before_commit(&socket_path, &[]);
++                return Err(err);
++            }
++        };
++
+         let mut pane_by_terminal = HashMap::new();
+         for ws in &self.app.state.workspaces {
+             for tab in &ws.tabs {
+@@ -78,29 +87,48 @@ impl HeadlessServer {
+         );
+ 
+         let mut handoff_entries = Vec::new();
++        let mut snapshot_error = None;
+         for (terminal_id, runtime) in self.app.terminal_runtimes.iter() {
+             let Some(pane_id) = pane_by_terminal.get(terminal_id).copied() else {
+                 continue;
+             };
+             let mut handoff_runtime = runtime.handoff_runtime_state(pane_id);
++            handoff_runtime.terminal_id = Some(terminal_id.clone());
+             handoff_runtime.agent_state = self
+                 .app
+                 .state
+                 .terminals
+                 .get(terminal_id)
+                 .and_then(|terminal| terminal.handoff_agent_state());
+-            let has_agent_session = self
++            // Older importers ignore the snapshot field. Keep their existing
++            // bounded primary-screen fallback for explicit downgrades.
++            if self
+                 .app
+                 .state
+                 .terminals
+                 .get(terminal_id)
+-                .is_some_and(|terminal| terminal.persisted_agent_session.is_some());
+-            if !has_agent_session {
++                .is_none_or(|terminal| terminal.persisted_agent_session.is_none())
++            {
+                 handoff_runtime.initial_history_ansi = runtime.handoff_history_ansi();
+             }
++            let snapshot = runtime
++                .handoff_snapshot()
++                .and_then(|bytes| terminal_snapshots.write(pane_id, &bytes));
++            match snapshot {
++                Ok(path) => handoff_runtime.terminal_snapshot = Some(path),
++                Err(err) => {
++                    snapshot_error = Some(err);
++                    break;
++                }
++            }
+             handoff_entries.push((terminal_id.clone(), handoff_runtime));
+         }
+ 
++        if let Some(err) = snapshot_error {
++            self.rollback_handoff_before_commit(&socket_path, &paused_terminal_ids);
++            return Err(err);
++        }
++
+         let panes = handoff_entries
+             .iter()
+             .map(|(_, runtime)| runtime.clone())
+diff --git a/src/server/headless/render.rs b/src/server/headless/render.rs
+index aa075a9..c5c74a4 100644
+--- a/src/server/headless/render.rs
++++ b/src/server/headless/render.rs
+@@ -357,7 +357,9 @@ impl HeadlessServer {
+                 ClientConnectionMode::ClientShell => {}
+                 ClientConnectionMode::TerminalAttach { terminal_id }
+                 | ClientConnectionMode::TerminalObserve { terminal_id } => {
+-                    direct_terminal_targets.insert(terminal_id.as_str());
++                    if client.terminal_frames {
++                        direct_terminal_targets.insert(terminal_id.as_str());
++                    }
+                 }
+                 ClientConnectionMode::TerminalPending => {}
+             }
+diff --git a/src/server/headless/tests/event_fairness.rs b/src/server/headless/tests/event_fairness.rs
+index 49e6093..86cff4e 100644
+--- a/src/server/headless/tests/event_fairness.rs
++++ b/src/server/headless/tests/event_fairness.rs
+@@ -7,6 +7,7 @@ fn queue_requests(server: &mut HeadlessServer, count: usize) -> std::sync::mpsc:
+     for index in 0..count {
+         sender
+             .send(api::ApiRequestMessage {
++                terminal_observer: None,
+                 request: api::schema::Request {
+                     id: index.to_string(),
+                     method: api::schema::Method::WorkspaceList(api::schema::EmptyParams::default()),
+@@ -113,6 +114,7 @@ async fn server_loop_drains_api_backlog_and_runs_scheduled_work() {
+         };
+         sender
+             .send(api::ApiRequestMessage {
++                terminal_observer: None,
+                 request: api::schema::Request {
+                     id: index.to_string(),
+                     method,
+diff --git a/src/server/headless/tests/mod.rs b/src/server/headless/tests/mod.rs
+index 3ab7ec0..73360b6 100644
+--- a/src/server/headless/tests/mod.rs
++++ b/src/server/headless/tests/mod.rs
+@@ -251,6 +251,7 @@ async fn headless_api_reads_latest_title_without_spinner_event_flooding() {
+ fn headless_pane_list(server: &mut HeadlessServer) -> Vec<api::schema::PaneInfo> {
+     let (respond_to, response_rx) = std::sync::mpsc::channel();
+     server.handle_api_request_with_shutdown_check(api::ApiRequestMessage {
++        terminal_observer: None,
+         request: api::schema::Request {
+             id: "list-titles".into(),
+             method: api::schema::Method::PaneList(api::schema::PaneListParams::default()),
+@@ -308,6 +309,7 @@ fn headless_api_request_drains_all_pending_internal_events_before_reading_state(
+     let (respond_to, response_rx) = std::sync::mpsc::channel();
+     assert!(
+         server.handle_api_request_with_shutdown_check(api::ApiRequestMessage {
++            terminal_observer: None,
+             request: api::schema::Request {
+                 id: "headless_stop_after_events".into(),
+                 method: api::schema::Method::ServerStop(api::schema::EmptyParams::default()),
+@@ -2110,6 +2112,7 @@ async fn client_local_navigation_does_not_emit_global_focus_transitions() {
+     server.handle_client_shell_api_request(
+         62,
+         crate::api::ApiRequestMessage {
++            terminal_observer: None,
+             request: crate::api::schema::Request {
+                 id: "focus-own-tab".into(),
+                 method: crate::api::schema::Method::TabFocus(crate::api::schema::TabTarget {
+@@ -2202,6 +2205,7 @@ async fn client_local_navigation_emits_pane_focused_only_when_that_client_moves(
+         server.handle_client_shell_api_request(
+             client_id,
+             api::ApiRequestMessage {
++                terminal_observer: None,
+                 request: api::schema::Request {
+                     id: "navigate".into(),
+                     method,
+@@ -2326,6 +2330,7 @@ async fn repeated_layout_action_reapplies_controller_geometry() {
+     assert!(server.handle_client_shell_api_request(
+         65,
+         crate::api::ApiRequestMessage {
++            terminal_observer: None,
+             request: crate::api::schema::Request {
+                 id: "resize-layout".into(),
+                 method: crate::api::schema::Method::LayoutSetSplitRatio(
+@@ -2375,6 +2380,7 @@ async fn public_close_reapplies_controller_geometry() {
+     let (respond_to, _response_rx) = std::sync::mpsc::channel();
+     assert!(
+         server.handle_api_request_with_shutdown_check(crate::api::ApiRequestMessage {
++            terminal_observer: None,
+             request: crate::api::schema::Request {
+                 id: "public-close-geometry".into(),
+                 method: crate::api::schema::Method::PaneClose(crate::api::schema::PaneTarget {
+@@ -2574,6 +2580,7 @@ async fn public_background_tab_create_preserves_client_locations() {
+ 
+     let (respond_to, _response_rx) = std::sync::mpsc::channel();
+     server.handle_api_request_with_shutdown_check(crate::api::ApiRequestMessage {
++        terminal_observer: None,
+         request: crate::api::schema::Request {
+             id: "create-background-tab".into(),
+             method: crate::api::schema::Method::TabCreate(crate::api::schema::TabCreateParams {
+@@ -2623,6 +2630,7 @@ async fn public_workspace_focus_preserves_each_clients_remembered_tabs() {
+ 
+     let (respond_to, _response_rx) = std::sync::mpsc::channel();
+     server.handle_api_request_with_shutdown_check(crate::api::ApiRequestMessage {
++        terminal_observer: None,
+         request: crate::api::schema::Request {
+             id: "focus-second-workspace".into(),
+             method: crate::api::schema::Method::WorkspaceFocus(
+@@ -2705,6 +2713,7 @@ async fn public_agent_focus_replaces_a_diverged_client_shell_projection() {
+         .unwrap();
+     let (respond_to, response_rx) = std::sync::mpsc::channel();
+     server.handle_api_request_with_shutdown_check(crate::api::ApiRequestMessage {
++        terminal_observer: None,
+         request: crate::api::schema::Request {
+             id: "focus-first-agent".into(),
+             method: crate::api::schema::Method::AgentFocus(crate::api::schema::AgentTarget {
+@@ -2778,6 +2787,7 @@ async fn public_api_focus_replaces_every_client_shell_projection() {
+ 
+     let (respond_to, _response_rx) = std::sync::mpsc::channel();
+     server.handle_api_request_with_shutdown_check(crate::api::ApiRequestMessage {
++        terminal_observer: None,
+         request: crate::api::schema::Request {
+             id: "test.client.shell.workspace.focus".into(),
+             method: crate::api::schema::Method::WorkspaceFocus(
+@@ -3399,6 +3409,7 @@ async fn worktree_discovery_does_not_block_client_typing() {
+         let (entered, release) = crate::worktree::test_list_gate::block(&repo);
+         let (respond_to, response_rx) = std::sync::mpsc::channel();
+         server.handle_api_request_with_shutdown_check(api::ApiRequestMessage {
++            terminal_observer: None,
+             request: api::schema::Request {
+                 id: "blocked-read".into(),
+                 method,
+@@ -5014,6 +5025,7 @@ fn windows_shutdown_probe_preserves_panes_and_agent_sessions() {
+                 server.app.event_tx.try_send(death()).unwrap();
+                 let (respond_to, response_rx) = std::sync::mpsc::channel();
+                 server.handle_api_request_with_shutdown_check(api::ApiRequestMessage {
++                    terminal_observer: None,
+                     request: api::schema::Request {
+                         id: "shutdown-race".into(),
+                         method: api::schema::Method::WorkspaceRename(
+@@ -6817,6 +6829,119 @@ fn direct_terminal_mouse_uses_runtime_protocol_encoding() {
+     });
+ }
+ 
++#[test]
++fn direct_semantic_keys_follow_native_modes_and_cannot_escape_the_bound_terminal() {
++    with_terminal_session_test_server(|server, runtime_id, terminal_id, pane_id| {
++        let (runtime, mut input) =
++            crate::terminal::TerminalRuntime::test_with_channel_and_scrollback_bytes(
++                80,
++                24,
++                0,
++                b"\x1b[?1h",
++                16,
++            );
++        server
++            .app
++            .terminal_runtimes
++            .insert(runtime_id.clone(), runtime);
++        connect_pending_terminal_client(server, 1);
++        let key = || {
++            protocol::ClientPaneInputEvent::from_terminal_key(crate::input::TerminalKey::new(
++                crossterm::event::KeyCode::Up,
++                crossterm::event::KeyModifiers::NONE,
++            ))
++            .unwrap()
++        };
++        let event = |target: String| ServerEvent::ClientShellPaneInput {
++            client_id: 1,
++            pane_id: target,
++            events: vec![key()],
++        };
++        assert!(!server.handle_server_event(event(pane_id.clone())));
++        assert!(
++            input.try_recv().is_err(),
++            "unbound connection must not accept keys"
++        );
++        server.clients.get_mut(&1).unwrap().mode = ClientConnectionMode::TerminalAttach {
++            terminal_id: terminal_id.clone(),
++        };
++        assert!(!server.handle_server_event(event("unrelated:p1".into())));
++        assert!(input.try_recv().is_err());
++        assert!(server.handle_server_event(event(pane_id.clone())));
++        assert_eq!(input.try_recv().unwrap(), Bytes::from_static(b"\x1bOA"));
++        server
++            .app
++            .terminal_runtimes
++            .get(&runtime_id)
++            .unwrap()
++            .test_process_pty_bytes(b"\x1b[?1l");
++        assert!(server.handle_server_event(event(pane_id)));
++        assert_eq!(input.try_recv().unwrap(), Bytes::from_static(b"\x1b[A"));
++        assert_eq!(
++            server
++                .runtime_for_terminal_id_string(&terminal_id)
++                .unwrap()
++                .current_size(),
++            (24, 80)
++        );
++        server.remove_client(1);
++        assert!(
++            input.try_recv().is_err(),
++            "legacy key releases produce no raw bytes"
++        );
++    });
++}
++
++#[test]
++fn direct_control_readiness_does_not_require_a_rendered_frame() {
++    with_terminal_session_test_server(|server, _, terminal_id, _| {
++        let (writer, control, rendered) = test_client_writer();
++        server.handle_server_event(ServerEvent::ClientConnected {
++            client_id: 1,
++            cols: 100,
++            rows: 30,
++            cell_width_px: 0,
++            cell_height_px: 0,
++            pixel_mouse: false,
++            writer,
++        });
++        assert!(
++            !server.handle_server_event(ServerEvent::ClientTerminalFrames {
++                client_id: 1,
++                enabled: false
++            })
++        );
++        assert!(
++            server.handle_server_event(ServerEvent::ClientControlTerminal {
++                client_id: 1,
++                target: terminal_id.clone(),
++                takeover: false,
++            })
++        );
++        let ready = read_server_message(control.recv_timeout(Duration::from_secs(1)).unwrap());
++        let ServerMessage::EndpointControl { kind, data } = ready else {
++            panic!("expected control readiness");
++        };
++        assert_eq!(kind, "terminal.control.ready");
++        assert_eq!(
++            serde_json::from_str::<serde_json::Value>(&data).unwrap(),
++            serde_json::json!({"terminal_id":terminal_id,"cols":100,"rows":30})
++        );
++        assert_eq!(
++            server
++                .runtime_for_terminal_id_string(&terminal_id)
++                .unwrap()
++                .current_size(),
++            (30, 100)
++        );
++        assert!(render_targets(&server.clients, server.foreground_client_id).is_empty());
++        server.render_and_stream();
++        assert!(rendered.try_recv().is_err());
++        server.remove_client(1);
++        assert!(server.app.state.direct_attach_resize_locks.is_empty());
++    });
++}
++
+ #[test]
+ fn direct_terminal_mouse_sends_nothing_without_mouse_reporting() {
+     with_terminal_session_test_server(|server, runtime_terminal_id, terminal_id, _pane_id| {
+@@ -7531,6 +7656,7 @@ fn notification_show_api_forwards_one_semantic_client_notification() {
+ 
+     let (respond_to, response_rx) = std::sync::mpsc::channel();
+     let changed = server.handle_api_request_with_shutdown_check(api::ApiRequestMessage {
++        terminal_observer: None,
+         request: api::schema::Request {
+             id: "notify".into(),
+             method: api::schema::Method::NotificationShow(api::schema::NotificationShowParams {
+@@ -7593,6 +7719,7 @@ fn notification_show_api_preserves_colon_in_forwarded_title() {
+ 
+     let (respond_to, response_rx) = std::sync::mpsc::channel();
+     let changed = server.handle_api_request_with_shutdown_check(api::ApiRequestMessage {
++        terminal_observer: None,
+         request: api::schema::Request {
+             id: "notify".into(),
+             method: api::schema::Method::NotificationShow(api::schema::NotificationShowParams {
+@@ -7638,6 +7765,7 @@ fn notification_show_api_validates_empty_title_before_disabled_delivery() {
+ 
+     let (respond_to, response_rx) = std::sync::mpsc::channel();
+     let changed = server.handle_api_request_with_shutdown_check(api::ApiRequestMessage {
++        terminal_observer: None,
+         request: api::schema::Request {
+             id: "notify".into(),
+             method: api::schema::Method::NotificationShow(api::schema::NotificationShowParams {
+@@ -7668,6 +7796,7 @@ fn notification_show_api_reports_no_foreground_client() {
+ 
+     let (respond_to, response_rx) = std::sync::mpsc::channel();
+     let changed = server.handle_api_request_with_shutdown_check(api::ApiRequestMessage {
++        terminal_observer: None,
+         request: api::schema::Request {
+             id: "notify".into(),
+             method: api::schema::Method::NotificationShow(api::schema::NotificationShowParams {
+@@ -7716,6 +7845,7 @@ fn notification_show_api_includes_sound_in_semantic_event() {
+     let (respond_to, response_rx) = std::sync::mpsc::channel();
+     assert!(
+         server.handle_api_request_with_shutdown_check(api::ApiRequestMessage {
++            terminal_observer: None,
+             request: api::schema::Request {
+                 id: "notify".into(),
+                 method: api::schema::Method::NotificationShow(
+@@ -7784,6 +7914,7 @@ fn completion_guard_server(writer: ClientWriter) -> (HeadlessServer, crate::layo
+ fn completion_guard_api_report(server: &mut HeadlessServer, method: api::schema::Method) {
+     let (respond_to, response_rx) = std::sync::mpsc::channel();
+     server.handle_api_request_with_shutdown_check(api::ApiRequestMessage {
++        terminal_observer: None,
+         request: api::schema::Request {
+             id: "completion-probe".into(),
+             method,
+@@ -7843,6 +7974,7 @@ fn api_report_agent_stores_valid_resume_argv_and_rejects_invalid() {
+ 
+     let (respond_to, response_rx) = std::sync::mpsc::channel();
+     server.handle_api_request_with_shutdown_check(api::ApiRequestMessage {
++        terminal_observer: None,
+         request: api::schema::Request {
+             id: "invalid-resume".into(),
+             method: report(vec!["/opt/prime/prime-agent", "--resume", "01a0"]),
+@@ -7864,6 +7996,7 @@ fn api_report_agent_stores_valid_resume_argv_and_rejects_invalid() {
+ 
+     let (respond_to, response_rx) = std::sync::mpsc::channel();
+     server.handle_api_request_with_shutdown_check(api::ApiRequestMessage {
++        terminal_observer: None,
+         request: api::schema::Request {
+             id: "not-owner".into(),
+             method: api::schema::Method::PaneReportAgentSession(
+@@ -8248,6 +8381,7 @@ fn stale_api_agent_report_does_not_forward_done_sound() {
+ 
+     let (respond_to, response_rx) = std::sync::mpsc::channel();
+     let changed = server.handle_api_request_with_shutdown_check(api::ApiRequestMessage {
++        terminal_observer: None,
+         request: api::schema::Request {
+             id: "stale".into(),
+             method: api::schema::Method::PaneReportAgent(api::schema::PaneReportAgentParams {
+diff --git a/src/server/headless/tests/pane_move.rs b/src/server/headless/tests/pane_move.rs
+index 99b39c8..c362489 100644
+--- a/src/server/headless/tests/pane_move.rs
++++ b/src/server/headless/tests/pane_move.rs
+@@ -23,6 +23,7 @@ fn public_move(
+ ) -> Result<PaneMoveResult, ErrorResponse> {
+     let (respond_to, response_rx) = std::sync::mpsc::channel();
+     server.handle_api_request_with_shutdown_check(crate::api::ApiRequestMessage {
++        terminal_observer: None,
+         request: crate::api::schema::Request {
+             id: "move-pane".into(),
+             method: crate::api::schema::Method::PaneMove(params),
+diff --git a/src/terminal/mod.rs b/src/terminal/mod.rs
+index 129634c..04b9592 100644
+--- a/src/terminal/mod.rs
++++ b/src/terminal/mod.rs
+@@ -1,5 +1,6 @@
+ mod history_read;
+ mod id;
++pub(crate) mod observation;
+ mod runtime;
+ mod runtime_registry;
+ pub mod state;
+diff --git a/src/terminal/observation.rs b/src/terminal/observation.rs
+new file mode 100644
+index 0000000..7e1c8c6
+--- /dev/null
++++ b/src/terminal/observation.rs
+@@ -0,0 +1,524 @@
++//! Runtime terminal observations. Reading never moves the terminal viewport or
++//! acquires geometry control. Slow clients retain only their last sent state.
++use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
++use std::sync::{Arc, Condvar, Mutex, Weak};
++use std::time::Duration;
++
++use crate::pane::PaneTerminal;
++use serde::Serialize;
++
++#[derive(Default)]
++pub(crate) struct ObservationSignal {
++    generation: AtomicU64,
++    watchers: AtomicUsize,
++    closed: AtomicBool,
++    lock: Mutex<()>,
++    changed: Condvar,
++    cache: Mutex<Option<Arc<TerminalSnapshot>>>,
++}
++
++impl ObservationSignal {
++    pub(crate) fn changed(&self) {
++        if self.watchers.load(Ordering::Relaxed) == 0 {
++            return;
++        }
++        let Ok(_guard) = self.lock.lock() else {
++            return;
++        };
++        self.generation.fetch_add(1, Ordering::Release);
++        self.changed.notify_all();
++    }
++
++    pub(crate) fn close(&self) {
++        self.closed.store(true, Ordering::Release);
++        self.changed();
++    }
++}
++
++// Colour: -1 = default, 0..255 = palette, 0x1000000 | rgb = true colour.
++// Cell: text, width (0=wide tail, 3=wrap spacer), fg, bg, attributes,
++// underline colour, hyperlink. Underline style occupies attribute bits 8..10.
++#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
++pub(crate) struct TerminalCell(
++    pub String,
++    pub u8,
++    pub i32,
++    pub i32,
++    pub u16,
++    pub i32,
++    pub Option<String>,
++);
++
++#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
++pub(crate) struct TerminalRow {
++    pub cells: Vec<TerminalCell>,
++    pub soft_wrapped: bool,
++    pub wrap_continuation: bool,
++}
++
++#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
++pub(crate) struct TerminalSnapshot {
++    pub revision: u64,
++    pub cols: u16,
++    pub rows: u16,
++    pub total_rows: usize,
++    pub first_row: usize,
++    pub row_offset: usize,
++    pub history_epoch: u64,
++    pub history_start: usize,
++    pub history: Vec<TerminalRow>,
++    pub cursor: (u16, u16, bool),
++    pub cursor_shape: u8,
++    pub alternate_screen: bool,
++    pub mouse_tracking: bool,
++    pub mouse_sgr: bool,
++    pub mouse_pixels: bool,
++    pub bracketed_paste: bool,
++    pub content: Vec<TerminalRow>,
++}
++
++pub(crate) struct TerminalObserver {
++    pub terminal_id: String,
++    pub boot_id: String,
++    terminal: Weak<PaneTerminal>,
++    content_lock: Arc<Mutex<()>>,
++    revision: Arc<AtomicU64>,
++    signal: Arc<ObservationSignal>,
++}
++
++impl Drop for TerminalObserver {
++    fn drop(&mut self) {
++        if self.signal.watchers.fetch_sub(1, Ordering::Relaxed) == 1 {
++            if let Ok(mut cache) = self.signal.cache.lock() {
++                *cache = None;
++            }
++        }
++    }
++}
++
++fn color(value: Option<crate::ghostty::CellColor>) -> i32 {
++    match value {
++        None => -1,
++        Some(crate::ghostty::CellColor::Palette(index)) => i32::from(index),
++        Some(crate::ghostty::CellColor::Rgb(rgb)) => {
++            0x1000000 | (i32::from(rgb.r) << 16) | (i32::from(rgb.g) << 8) | i32::from(rgb.b)
++        }
++    }
++}
++
++fn row(source: crate::ghostty::StyledScreenRow) -> TerminalRow {
++    TerminalRow {
++        soft_wrapped: source.soft_wrapped,
++        wrap_continuation: source.wrap_continuation,
++        cells: source
++            .cells
++            .into_iter()
++            .map(|cell| {
++                let s = cell.style;
++                let attributes = u16::from(s.bold)
++                    | (u16::from(s.italic) << 1)
++                    | (u16::from(s.faint) << 2)
++                    | (u16::from(s.blink) << 3)
++                    | (u16::from(s.inverse) << 4)
++                    | (u16::from(s.invisible) << 5)
++                    | (u16::from(s.strikethrough) << 6)
++                    | (u16::from(s.overline) << 7)
++                    | (u16::from(s.underline) << 8);
++                TerminalCell(
++                    cell.graphemes
++                        .into_iter()
++                        .filter_map(char::from_u32)
++                        .collect(),
++                    match cell.wide {
++                        crate::ghostty::CellWide::Narrow => 1,
++                        crate::ghostty::CellWide::Wide => 2,
++                        crate::ghostty::CellWide::SpacerTail => 0,
++                        crate::ghostty::CellWide::SpacerHead => 3,
++                    },
++                    color(s.fg_color),
++                    color(s.bg_color),
++                    attributes,
++                    color(s.underline_color),
++                    cell.hyperlink,
++                )
++            })
++            .collect(),
++    }
++}
++
++impl TerminalObserver {
++    pub(crate) fn new(
++        terminal_id: String,
++        boot_id: String,
++        terminal: Weak<PaneTerminal>,
++        content_lock: Arc<Mutex<()>>,
++        revision: Arc<AtomicU64>,
++        signal: Arc<ObservationSignal>,
++    ) -> Self {
++        signal.watchers.fetch_add(1, Ordering::Relaxed);
++        Self {
++            terminal_id,
++            boot_id,
++            terminal,
++            content_lock,
++            revision,
++            signal,
++        }
++    }
++
++    pub(crate) fn generation(&self) -> u64 {
++        self.signal.generation.load(Ordering::Acquire)
++    }
++    pub(crate) fn closed(&self) -> bool {
++        self.signal.closed.load(Ordering::Acquire)
++    }
++
++    pub(crate) fn wait(&self, generation: u64, timeout: Duration) {
++        if let Ok(guard) = self.signal.lock.lock() {
++            let _ = self.signal.changed.wait_timeout_while(guard, timeout, |_| {
++                self.generation() == generation && !self.closed()
++            });
++        }
++    }
++
++    pub(crate) fn snapshot(&self) -> Result<Option<Arc<TerminalSnapshot>>, String> {
++        let terminal = self.terminal.upgrade().ok_or("terminal closed")?;
++        let _content = self
++            .content_lock
++            .lock()
++            .map_err(|_| "terminal unavailable")?;
++        let revision = self.revision.load(Ordering::Acquire);
++        let mut cache = self
++            .signal
++            .cache
++            .lock()
++            .map_err(|_| "terminal unavailable")?;
++        if let Some(snapshot) = cache
++            .as_ref()
++            .filter(|snapshot| snapshot.revision == revision)
++        {
++            return Ok(Some(snapshot.clone()));
++        }
++        let mut core = terminal
++            .ghostty
++            .core
++            .lock()
++            .map_err(|_| "terminal unavailable")?;
++        let t = &mut core.terminal;
++        let read = |error: crate::ghostty::Error| error.to_string();
++        if t.mode_get(crate::ghostty::MODE_SYNCHRONIZED_OUTPUT)
++            .map_err(read)?
++        {
++            return Ok(None);
++        }
++        let cols = t.cols().map_err(read)?;
++        let rows = t.rows().map_err(read)?;
++        let total_rows = t.total_rows().map_err(read)?;
++        if usize::from(cols) * usize::from(rows) > 262144 {
++            return Err("terminal dimensions exceed observation limit".into());
++        }
++        let first_row = total_rows.saturating_sub(usize::from(rows));
++        let content = (first_row..total_rows)
++            .map(|index| t.screen_styled_row(index as u32).map(row).map_err(read))
++            .collect::<Result<Vec<_>, _>>()?;
++        let coordinates = t.observation_history_coordinates().map_err(read)?;
++        let logical_first = first_row + coordinates.offset;
++        let previous_first = cache
++            .as_ref()
++            .filter(|old| old.history_epoch == coordinates.epoch)
++            .map(|old| old.first_row + old.row_offset);
++        let history_start = previous_first
++            .unwrap_or(logical_first.saturating_sub(200))
++            .max(coordinates.offset)
++            .max(logical_first.saturating_sub(256))
++            .min(logical_first);
++        let history = (history_start..logical_first)
++            .map(|index| {
++                t.screen_styled_row((index - coordinates.offset) as u32)
++                    .map(row)
++                    .map_err(read)
++            })
++            .collect::<Result<Vec<_>, _>>()?;
++        let snapshot = Arc::new(TerminalSnapshot {
++            revision,
++            cols,
++            rows,
++            total_rows,
++            first_row,
++            row_offset: coordinates.offset,
++            history_epoch: coordinates.epoch,
++            history_start,
++            history,
++            cursor: (
++                t.cursor_x().map_err(read)?,
++                t.cursor_y().map_err(read)?,
++                t.mode_get(25).map_err(read)?,
++            ),
++            cursor_shape: t.cursor_shape().map_err(read)?,
++            alternate_screen: t.active_screen().map_err(read)?
++                == crate::ghostty::ActiveScreen::Alternate,
++            mouse_tracking: t.mouse_tracking_enabled().map_err(read)?,
++            mouse_sgr: t.mode_get(1006).map_err(read)?,
++            mouse_pixels: t.mode_get(1016).map_err(read)?,
++            bracketed_paste: t.mode_get(2004).map_err(read)?,
++            content,
++        });
++        *cache = Some(snapshot.clone());
++        Ok(Some(snapshot))
++    }
++
++    pub(crate) fn history(
++        &self,
++        expected_boot: &str,
++        expected_revision: u64,
++        expected_epoch: Option<u64>,
++        start: usize,
++        limit: usize,
++    ) -> Result<Vec<TerminalRow>, String> {
++        if expected_boot != self.boot_id {
++            return Err("runtime identity changed".into());
++        }
++        let terminal = self.terminal.upgrade().ok_or("terminal closed")?;
++        let _content = self
++            .content_lock
++            .lock()
++            .map_err(|_| "terminal unavailable")?;
++        if expected_epoch.is_none() && expected_revision != self.revision.load(Ordering::Acquire) {
++            return Err("terminal revision changed".into());
++        }
++        let mut core = terminal
++            .ghostty
++            .core
++            .lock()
++            .map_err(|_| "terminal unavailable")?;
++        let t = &mut core.terminal;
++        let total = t.total_rows().map_err(|e| e.to_string())?;
++        let cols = usize::from(t.cols().map_err(|e| e.to_string())?).max(1);
++        if limit > 2048 || limit.saturating_mul(cols) > 262144 {
++            return Err("history range exceeds limit".into());
++        }
++        let coordinates = t
++            .observation_history_coordinates()
++            .map_err(|e| e.to_string())?;
++        let (offset, end) = if let Some(epoch) = expected_epoch {
++            if epoch != coordinates.epoch || start < coordinates.offset {
++                return Err("history epoch changed or rows were pruned".into());
++            }
++            (
++                coordinates.offset,
++                total.saturating_sub(usize::from(t.rows().map_err(|e| e.to_string())?)),
++            )
++        } else {
++            (0, total)
++        };
++        let start = start.saturating_sub(offset);
++        (start.min(end)..start.saturating_add(limit).min(end))
++            .map(|index| {
++                t.screen_styled_row(index as u32)
++                    .map(row)
++                    .map_err(|e| e.to_string())
++            })
++            .collect()
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::terminal::TerminalRuntime;
++
++    fn text(rows: &[TerminalRow]) -> String {
++        rows.iter()
++            .map(|row| {
++                row.cells
++                    .iter()
++                    .map(|cell| cell.0.as_str())
++                    .collect::<String>()
++            })
++            .collect::<Vec<_>>()
++            .join("\n")
++    }
++
++    #[tokio::test]
++    async fn observation_is_independent_of_native_viewport_and_preserves_styled_history() {
++        let runtime = TerminalRuntime::test_with_scrollback_bytes(
++            20,
++            3,
++            1024 * 1024,
++            "\x1b[31m红色\x1b[0m\r\nsecond\r\nthird\r\nfourth\r\nfifth".as_bytes(),
++        );
++        runtime.scroll_up(2);
++        let metrics = runtime.scroll_metrics();
++        let observer = runtime.observe("terminal-test".into(), "boot-test".into());
++        let snapshot = observer.snapshot().unwrap().unwrap();
++        assert!(text(&snapshot.content).contains("fifth"));
++        let history = observer
++            .history("boot-test", snapshot.revision, None, 0, snapshot.first_row)
++            .unwrap();
++        assert!(text(&history).contains("红色"));
++        assert_eq!(history[0].cells[0].1, 2);
++        assert_eq!(history[0].cells[0].2, 1);
++        assert_eq!(history[0].cells[1].1, 0);
++        assert_eq!(metrics, runtime.scroll_metrics());
++        assert_eq!(runtime.terminal_dimensions(), Some((20, 3)));
++    }
++
++    #[tokio::test]
++    async fn observation_preserves_erased_backgrounds_in_live_rows_and_history() {
++        let runtime = TerminalRuntime::test_with_scrollback_bytes(
++            20,
++            4,
++            1024 * 1024,
++            b"\x1b[48;5;8m\x1b[2K> user message\x1b[0m\r\n\x1b[48;2;12;34;56m\x1b[20Xrgb\x1b[0m\r\n\x1b[48;5;8m\x1b[2K\x1b[0m",
++        );
++        let observer = runtime.observe("terminal-test".into(), "boot-test".into());
++        let snapshot = observer.snapshot().unwrap().unwrap();
++        for (y, background) in [(0, 8), (1, 0x10c2238), (2, 8), (3, -1)] {
++            assert!(
++                snapshot.content[y]
++                    .cells
++                    .iter()
++                    .all(|cell| cell.3 == background),
++                "row {y} must retain its background, including cells without text"
++            );
++        }
++
++        runtime.test_process_pty_bytes(b"\x1b[H\x1b[2K");
++        let cleared = observer.snapshot().unwrap().unwrap();
++        assert!(cleared.content[0].cells.iter().all(|cell| cell.3 == -1));
++        assert!(cleared.content[1]
++            .cells
++            .iter()
++            .all(|cell| cell.3 == 0x10c2238));
++
++        runtime.test_process_pty_bytes(b"\x1b[4;1H\r\n\r\n");
++        let scrolled = observer.snapshot().unwrap().unwrap();
++        let history = observer
++            .history("boot-test", scrolled.revision, None, 0, scrolled.first_row)
++            .unwrap();
++        assert!(history[1].cells.iter().all(|cell| cell.3 == 0x10c2238));
++    }
++
++    #[tokio::test]
++    async fn observers_share_atomic_snapshots_and_reject_stale_history() {
++        let runtime = TerminalRuntime::test_with_screen_bytes(20, 3, b"before");
++        let first = runtime.observe("terminal-test".into(), "boot-test".into());
++        let second = runtime.observe("terminal-test".into(), "boot-test".into());
++        let before = first.snapshot().unwrap().unwrap();
++        assert!(Arc::ptr_eq(&before, &second.snapshot().unwrap().unwrap()));
++        let generation = first.generation();
++        runtime.test_process_pty_bytes(b"\r\x1b[2Kafter\x1b[?1000h\x1b[?1006h\x1b[?2004h");
++        assert!(first.generation() > generation);
++        let after = first.snapshot().unwrap().unwrap();
++        assert!(after.revision > before.revision);
++        assert!(text(&after.content).contains("after"));
++        assert!(after.mouse_tracking && after.mouse_sgr && after.bracketed_paste);
++        assert!(first
++            .history("boot-test", before.revision, None, 0, 1)
++            .is_err());
++        assert!(first
++            .history("other-boot", after.revision, None, 0, 1)
++            .is_err());
++        drop(runtime);
++        assert!(first.closed() && second.closed());
++    }
++
++    #[tokio::test]
++    async fn observer_cursor_shape_follows_modes_and_reset_without_rendering() {
++        let runtime = TerminalRuntime::test_with_screen_bytes(20, 3, b"text");
++        let observer = runtime.observe("terminal-test".into(), "boot-test".into());
++        assert_eq!(observer.snapshot().unwrap().unwrap().cursor_shape, 0);
++        runtime.test_process_pty_bytes(b"\x1b[6 q");
++        assert_eq!(observer.snapshot().unwrap().unwrap().cursor_shape, 6);
++        runtime.test_process_pty_bytes(b"\x1b[?12h");
++        assert_eq!(observer.snapshot().unwrap().unwrap().cursor_shape, 5);
++        runtime.test_process_pty_bytes(b"\x1b[3 q");
++        assert_eq!(observer.snapshot().unwrap().unwrap().cursor_shape, 3);
++        runtime.test_process_pty_bytes(b"\x1b[0 q");
++        assert_eq!(observer.snapshot().unwrap().unwrap().cursor_shape, 0);
++    }
++
++    #[tokio::test]
++    async fn history_anchor_survives_output_and_pruning_but_not_reflow() {
++        let runtime = TerminalRuntime::test_with_scrollback_bytes(
++            80,
++            3,
++            32768,
++            b"first\r\nsecond\r\nthird\r\nfourth",
++        );
++        let observer = runtime.observe("terminal-test".into(), "boot-test".into());
++        let before = observer.snapshot().unwrap().unwrap();
++        runtime.test_process_pty_bytes(b"\r\nfifth");
++        let old_history = observer
++            .history(
++                "boot-test",
++                before.revision,
++                Some(before.history_epoch),
++                0,
++                1,
++            )
++            .unwrap();
++        assert!(text(&old_history).contains("first"));
++        let mut after = observer.snapshot().unwrap().unwrap();
++        let mut last_index = 0;
++        for index in 0..20_000 {
++            runtime.test_process_pty_bytes(format!("\r\n{index:06} {}", "x".repeat(60)).as_bytes());
++            after = observer.snapshot().unwrap().unwrap();
++            assert_eq!(after.history_epoch, before.history_epoch);
++            last_index = index;
++            if after.row_offset > 0 {
++                break;
++            }
++        }
++        assert!(
++            after.row_offset > 0,
++            "small scrollback must prune old pages: total={}, epoch={}",
++            after.total_rows,
++            after.history_epoch
++        );
++        let logical_first = after.row_offset + after.first_row;
++        let history = observer
++            .history(
++                "boot-test",
++                before.revision,
++                Some(before.history_epoch),
++                logical_first - 1,
++                1,
++            )
++            .unwrap();
++        assert!(text(&history).contains(&format!("{:06}", last_index - 3)));
++        assert!(observer
++            .history(
++                "boot-test",
++                before.revision,
++                Some(before.history_epoch),
++                0,
++                1
++            )
++            .is_err());
++        runtime.resize(3, 40, 0, 0);
++        assert_ne!(
++            observer.snapshot().unwrap().unwrap().history_epoch,
++            before.history_epoch
++        );
++        assert!(observer
++            .history(
++                "boot-test",
++                before.revision,
++                Some(before.history_epoch),
++                logical_first - 1,
++                1
++            )
++            .is_err());
++    }
++
++    #[tokio::test]
++    async fn synchronized_output_does_not_publish_a_partial_screen() {
++        let runtime = TerminalRuntime::test_with_screen_bytes(20, 3, b"before");
++        let observer = runtime.observe("terminal-test".into(), "boot-test".into());
++        runtime.test_process_pty_bytes(b"\x1b[?2026h\r\x1b[2Kpartial");
++        assert!(observer.snapshot().unwrap().is_none());
++        runtime.test_process_pty_bytes(b" complete\x1b[?2026l");
++        assert!(text(&observer.snapshot().unwrap().unwrap().content).contains("partial complete"));
++    }
++}
+diff --git a/src/terminal/runtime.rs b/src/terminal/runtime.rs
+index 23b61da..c80db0f 100644
+--- a/src/terminal/runtime.rs
++++ b/src/terminal/runtime.rs
+@@ -17,6 +17,14 @@ use crate::layout::PaneId;
+ pub struct TerminalRuntime(crate::pane::PaneRuntime);
+ 
+ impl TerminalRuntime {
++    pub(crate) fn observe(
++        &self,
++        terminal_id: String,
++        boot_id: String,
++    ) -> crate::terminal::observation::TerminalObserver {
++        self.0.observe(terminal_id, boot_id)
++    }
++
+     pub fn shutdown(self) {
+         self.0.shutdown();
+     }
+@@ -54,6 +62,11 @@ impl TerminalRuntime {
+         self.0.handoff_runtime_state(pane_id)
+     }
+ 
++    #[cfg(unix)]
++    pub fn handoff_snapshot(&self) -> std::io::Result<Vec<u8>> {
++        self.0.handoff_snapshot()
++    }
++
+     #[cfg(unix)]
+     pub fn handoff_history_ansi(&self) -> Option<String> {
+         self.0.handoff_history_ansi()
+diff --git a/src/update.rs b/src/update.rs
+index 854bacd..65a66a2 100644
+--- a/src/update.rs
++++ b/src/update.rs
+@@ -72,6 +72,14 @@ pub struct Version {
+ impl Version {
+     pub fn parse(s: &str) -> Option<Self> {
+         let s = s.strip_prefix('v').unwrap_or(s);
++        let s = match s.split_once("-swift.") {
++            Some((base, build))
++                if !build.is_empty() && build.bytes().all(|c| c.is_ascii_digit()) =>
++            {
++                base
++            }
++            _ => s,
++        };
+         let parts: Vec<&str> = s.split('.').collect();
+         if parts.len() != 3 {
+             return None;
+@@ -2107,6 +2115,9 @@ fn homebrew_cellar_keg_root(path: &Path) -> Option<PathBuf> {
+ 
+ /// Manual self-update command (`herdr update`).
+ pub fn self_update(options: SelfUpdateOptions) -> Result<Version, String> {
++    if crate::build_info::is_swift() {
++        return Err("This runtime is managed by Swift; update it through Swift.".into());
++    }
+     let channel = UpdateChannel::configured();
+ 
+     if is_homebrew_managed_install() {
+@@ -2346,6 +2357,9 @@ fn print_outdated_integration_notice_with_updated_binary(updated_exe: &Path) {
+ /// Background update check: only surface availability and release notes.
+ /// Runs in a background thread at startup.
+ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
++    if crate::build_info::is_swift() {
++        return;
++    }
+     crate::logging::update_check_started();
+     if let Ok(version) = env::var(FAKE_UPDATE_VERSION_ENV) {
+         let version = version.trim();
+@@ -3055,6 +3069,8 @@ mod tests {
+                 surface_interest: true,
+                 health_check: true,
+                 ssh_agent_registration: false,
++                terminal_state_version: None,
++                terminal_input_version: None,
+             }),
+         };
+         let missing_baseline = crate::api::RuntimeStatus {
+@@ -3130,6 +3146,8 @@ mod tests {
+                     surface_interest: true,
+                     health_check: true,
+                     ssh_agent_registration: false,
++                    terminal_state_version: None,
++                    terminal_input_version: None,
+                 }),
+             },
+         };
+@@ -3389,6 +3407,8 @@ mod tests {
+                     surface_interest: true,
+                     health_check: true,
+                     ssh_agent_registration: false,
++                    terminal_state_version: None,
++                    terminal_input_version: None,
+                 }),
+             },
+         };
+diff --git a/tests/client_mode.rs b/tests/client_mode.rs
+index 8843edc..c4fe042 100644
+--- a/tests/client_mode.rs
++++ b/tests/client_mode.rs
+@@ -747,6 +747,10 @@ fn sigwinch_refreshes_host_palette_without_resizing() {
+         read_output(&output)
+     );
+ 
++    // WSL deliberately skips OSC 4 palette queries; refresh must preserve the
++    // same platform policy as the startup query.
++    let queries_palette = read_output(&output).contains("\x1b]4;15;?\x1b\\");
++
+     // Complete the startup query with a light palette. No appearance notification
+     // is sent: this models a terminal whose colors are changed directly by OSC.
+     let mut light =
+@@ -769,9 +773,10 @@ fn sigwinch_refreshes_host_palette_without_resizing() {
+             wait_until(Duration::from_secs(5), Duration::from_millis(25), || {
+                 let captured = read_output(&output);
+                 let refreshed = &captured[watermark..];
+-                refreshed.contains(queries) && refreshed.contains("\x1b]4;15;?\x1b\\")
++                refreshed.contains(queries)
++                    && refreshed.contains("\x1b]4;15;?\x1b\\") == queries_palette
+             }),
+-            "SIGWINCH should query default colors and the ANSI palette without changing PTY size"
++            "SIGWINCH should refresh host colors using the startup platform policy without changing PTY size"
+         );
+         writer
+             .write_all(b"\x1b]10;rgb:eeee/eeee/eeee\x1b\\\x1b]11;rgb:1111/2222/3333\x1b\\")
+diff --git a/vendor/libghostty-vt/include/ghostty/vt/terminal.h b/vendor/libghostty-vt/include/ghostty/vt/terminal.h
+index 6404af5..88f5614 100644
+--- a/vendor/libghostty-vt/include/ghostty/vt/terminal.h
++++ b/vendor/libghostty-vt/include/ghostty/vt/terminal.h
+@@ -2000,6 +2000,14 @@ typedef enum GHOSTTY_ENUM_TYPED {
+    */
+   GHOSTTY_TERMINAL_DATA_MODIFY_OTHER_KEYS = 41,
+ 
++  /**
++   * Current DECSCUSR cursor appearance: 0 for the configured default,
++   * 1/2 blinking/steady block, 3/4 underline, 5/6 bar.
++   * Swift runtime extension; querying does not update render state.
++   * Output type: uint8_t *
++   */
++  GHOSTTY_TERMINAL_DATA_CURSOR_SHAPE = 42,
++
+   GHOSTTY_TERMINAL_DATA_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
+ } GhosttyTerminalData;
+ 
+diff --git a/vendor/libghostty-vt/src/terminal/c/terminal.zig b/vendor/libghostty-vt/src/terminal/c/terminal.zig
+index e825183..836b7b8 100644
+--- a/vendor/libghostty-vt/src/terminal/c/terminal.zig
++++ b/vendor/libghostty-vt/src/terminal/c/terminal.zig
+@@ -1618,6 +1618,7 @@ pub const TerminalData = enum(c_int) {
+     cursor_at_prompt = 39,
+     clipboard_write_max_bytes = 40,
+     modify_other_keys = 41,
++    cursor_shape = 42,
+ 
+     /// Output type expected for querying the data of the given kind.
+     pub fn OutType(comptime self: TerminalData) type {
+@@ -1634,7 +1635,7 @@ pub const TerminalData = enum(c_int) {
+             .modify_other_keys,
+             => bool,
+             .active_screen => TerminalScreen,
+-            .kitty_keyboard_flags => u8,
++            .kitty_keyboard_flags, .cursor_shape => u8,
+             .scrollbar => TerminalScrollbar,
+             .cursor_style => style_c.Style,
+             .title, .pwd => lib.String,
+@@ -1730,6 +1731,11 @@ fn getTyped(
+         .kitty_keyboard_flags => out.* = @as(u8, t.screens.active.kitty_keyboard.current().int()),
+         .scrollbar => out.* = t.screens.active.pages.scrollbar().cval(),
+         .cursor_style => out.* = .fromStyle(t.screens.active.cursor.style),
++        .cursor_shape => out.* = if (t.cursor.is_default) 0 else switch (t.screens.active.cursor.cursor_style) {
++            .block, .block_hollow => if (t.modes.get(.cursor_blinking)) @as(u8, 1) else 2,
++            .underline => if (t.modes.get(.cursor_blinking)) @as(u8, 3) else 4,
++            .bar => if (t.modes.get(.cursor_blinking)) @as(u8, 5) else 6,
++        },
+         .mouse_tracking => out.* = t.modes.get(.mouse_event_x10) or
+             t.modes.get(.mouse_event_normal) or
+             t.modes.get(.mouse_event_button) or
+diff --git a/vendor/patches/libghostty-vt/0002-expose-modify-other-keys-mode.patch b/vendor/patches/libghostty-vt/0002-expose-modify-other-keys-mode.patch
+index 49a2679..af53abc 100644
+--- a/vendor/patches/libghostty-vt/0002-expose-modify-other-keys-mode.patch
++++ b/vendor/patches/libghostty-vt/0002-expose-modify-other-keys-mode.patch
+@@ -1,39 +1,37 @@
+ --- a/vendor/libghostty-vt/include/ghostty/vt/terminal.h
+ +++ b/vendor/libghostty-vt/include/ghostty/vt/terminal.h
+-@@ -1951,6 +1951,14 @@
+-    * Output type: size_t *
++@@ -1993,6 +1993,12 @@
+     */
+    GHOSTTY_TERMINAL_DATA_CLIPBOARD_WRITE_MAX_BYTES = 40,
+-+
++
+ +  /**
+ +   * Whether xterm modifyOtherKeys mode 2 is enabled.
+ +   *
+ +   * Output type: bool *
+ +   */
+ +  GHOSTTY_TERMINAL_DATA_MODIFY_OTHER_KEYS = 41,
+-+
+-   GHOSTTY_TERMINAL_DATA_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
+- } GhosttyTerminalData;
+- 
++
++   /**
++    * Current DECSCUSR cursor appearance: 0 for the configured default,
+ --- a/vendor/libghostty-vt/src/terminal/c/terminal.zig
+ +++ b/vendor/libghostty-vt/src/terminal/c/terminal.zig
+-@@ -1556,6 +1556,7 @@
++@@ -1617,6 +1617,7 @@
+      vt_ground = 38,
+      cursor_at_prompt = 39,
+      clipboard_write_max_bytes = 40,
+ +    modify_other_keys = 41,
+- 
++     cursor_shape = 42,
++
+      /// Output type expected for querying the data of the given kind.
+-     pub fn OutType(comptime self: TerminalData) type {
+-@@ -1569,6 +1570,7 @@
++@@ -1631,6 +1632,7 @@
+              .vt_processing_error,
+              .vt_ground,
+              .cursor_at_prompt,
+ +            .modify_other_keys,
+              => bool,
+              .active_screen => TerminalScreen,
+-             .kitty_keyboard_flags => u8,
+-@@ -1719,6 +1721,7 @@
++             .kitty_keyboard_flags, .cursor_shape => u8,
++@@ -1786,6 +1788,7 @@
+              t.screens.active.selection orelse return .no_value,
+          ),
+          .viewport_active => out.* = t.screens.active.pages.viewport == .active,
+@@ -41,10 +39,12 @@
+          .vt_processing_error => out.* = wrapper.stream.handler.semantic_failure,
+          .vt_ground => out.* = wrapper.stream.ground(),
+          .scrollback_max_bytes => {
+-@@ -3139,6 +3142,24 @@
++@@ -3204,6 +3207,24 @@
++
++     try testing.expectEqual(Result.success, get(t, .kitty_keyboard_flags, @ptrCast(&flags)));
+      try testing.expectEqual(3, flags);
+- }
+- 
+++}
+++
+ +test "get modify_other_keys" {
+ +    var t: Terminal = null;
+ +    try testing.expectEqual(Result.success, new(&lib.alloc.test_allocator, &t, 80, 24));
+@@ -61,8 +61,6 @@
+ +    vt_write(t, "\x1b[>4;0m", 7);
+ +    try testing.expectEqual(Result.success, get(t, .modify_other_keys, @ptrCast(&enabled)));
+ +    try testing.expect(!enabled);
+-+}
+-+
++ }
++
+  test "get mouse_tracking" {
+-     var t: Terminal = null;
+-     try testing.expectEqual(Result.success, new(

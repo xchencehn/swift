@@ -1,0 +1,323 @@
+{
+  "provider": "claude",
+  "version": "2.1.258",
+  "source": "native-slash-menu",
+  "commands": [
+    {
+      "name": "add-dir",
+      "description": "Add a new working directory"
+    },
+    {
+      "name": "advisor",
+      "description": "Let Claude consult a stronger model at key moments"
+    },
+    {
+      "name": "agents",
+      "description": "(removed) Ask Claude to create/manage subagents, or edit .claude/agents/"
+    },
+    {
+      "name": "artifacts",
+      "description": "Browse your published and shared artifacts"
+    },
+    {
+      "name": "auto-mode-setup",
+      "description": "Teach auto mode about your environment, plus optional rule tweaks"
+    },
+    {
+      "name": "autocompact",
+      "description": "Set how full the context gets before auto-summarizing"
+    },
+    {
+      "name": "autofix-pr",
+      "description": "Monitor and autofix any issues with the current PR"
+    },
+    {
+      "name": "background",
+      "description": "Send this session to the background and free the terminal"
+    },
+    {
+      "name": "branch",
+      "description": "Create a branch of the current conversation at this point"
+    },
+    {
+      "name": "btw",
+      "description": "Ask a quick side question without interrupting the main conversation"
+    },
+    {
+      "name": "bug",
+      "description": "Report a bug or share your conversation"
+    },
+    {
+      "name": "cd",
+      "description": "Move this session to a new working directory"
+    },
+    {
+      "name": "chrome",
+      "description": "Open Claude in Chrome settings"
+    },
+    {
+      "name": "clear",
+      "description": "Start a new session with empty context; previous session stays on disk (resumable with /resume)"
+    },
+    {
+      "name": "color",
+      "description": "Set the prompt bar color for this session"
+    },
+    {
+      "name": "compact",
+      "description": "Free up context by summarizing the conversation so far"
+    },
+    {
+      "name": "config",
+      "description": "Open settings"
+    },
+    {
+      "name": "context",
+      "description": "Visualize current context usage as a colored grid"
+    },
+    {
+      "name": "copy",
+      "description": "Copy Claude's last response to clipboard (or /copy N for the Nth-latest)"
+    },
+    {
+      "name": "design",
+      "description": "Grant or revoke Claude agent access to your Design projects"
+    },
+    {
+      "name": "design-login",
+      "description": "Authorize design-system access for /design-sync with your claude.ai account"
+    },
+    {
+      "name": "diff",
+      "description": "View uncommitted changes and per-turn diffs"
+    },
+    {
+      "name": "effort",
+      "description": "Set effort level for model usage"
+    },
+    {
+      "name": "exit",
+      "description": "Exit the CLI"
+    },
+    {
+      "name": "export",
+      "description": "Export the current conversation to a file or clipboard"
+    },
+    {
+      "name": "fast",
+      "description": "Toggle fast mode (Opus 5)"
+    },
+    {
+      "name": "feedback",
+      "description": "Send feedback to Anthropic or report a bug"
+    },
+    {
+      "name": "focus",
+      "description": "Toggle focus view: just your prompt, summary, and response"
+    },
+    {
+      "name": "fork",
+      "description": "Copy this conversation into a new background session and keep working here"
+    },
+    {
+      "name": "goal",
+      "description": "Set a goal Claude checks before stopping"
+    },
+    {
+      "name": "help",
+      "description": "Show help and available commands"
+    },
+    {
+      "name": "hooks",
+      "description": "View hook configurations for tool events"
+    },
+    {
+      "name": "ide",
+      "description": "Manage IDE integrations and show status"
+    },
+    {
+      "name": "import",
+      "description": "Import config from another AI coding agent"
+    },
+    {
+      "name": "install-github-app",
+      "description": "Set up Claude GitHub Actions for a repository"
+    },
+    {
+      "name": "install-slack-app",
+      "description": "Install the Claude Slack app"
+    },
+    {
+      "name": "keybindings",
+      "description": "Open your keyboard shortcuts file"
+    },
+    {
+      "name": "list-agents",
+      "description": "List subagents, teammates, and other Claude sessions you can message"
+    },
+    {
+      "name": "login",
+      "description": "Sign in with your Anthropic account"
+    },
+    {
+      "name": "logout",
+      "description": "Sign out from your Anthropic account"
+    },
+    {
+      "name": "mcp",
+      "description": "Manage MCP servers"
+    },
+    {
+      "name": "memory",
+      "description": "Edit CLAUDE.md files and memory settings"
+    },
+    {
+      "name": "mobile",
+      "description": "Show QR code to download the Claude mobile app"
+    },
+    {
+      "name": "model",
+      "description": "Set the AI model for Claude Code"
+    },
+    {
+      "name": "permissions",
+      "description": "Manage allow and deny tool permission rules"
+    },
+    {
+      "name": "plan",
+      "description": "Enable plan mode or view the current session plan"
+    },
+    {
+      "name": "plugin",
+      "description": "Manage Claude Code plugins"
+    },
+    {
+      "name": "powerup",
+      "description": "Discover Claude Code features through quick interactive lessons"
+    },
+    {
+      "name": "privacy-settings",
+      "description": "View and update your privacy settings"
+    },
+    {
+      "name": "radio",
+      "description": "Listen to Claude FM lo-fi radio"
+    },
+    {
+      "name": "recap",
+      "description": "Generate a one-line session recap now"
+    },
+    {
+      "name": "release-notes",
+      "description": "View release notes"
+    },
+    {
+      "name": "reload-plugins",
+      "description": "Activate pending plugin changes in the current session"
+    },
+    {
+      "name": "reload-skills",
+      "description": "Pick up skills added or changed on disk during this session"
+    },
+    {
+      "name": "remote-control",
+      "description": "Control this session from your phone or claude.ai/code"
+    },
+    {
+      "name": "remote-env",
+      "description": "Choose the default environment for cloud agents"
+    },
+    {
+      "name": "rename",
+      "description": "Rename the current conversation"
+    },
+    {
+      "name": "resume",
+      "description": "Resume a previous conversation"
+    },
+    {
+      "name": "rewind",
+      "description": "Restore the code and/or conversation to a previous point"
+    },
+    {
+      "name": "sandbox",
+      "description": "Configure sandbox settings"
+    },
+    {
+      "name": "scroll-speed",
+      "description": "Adjust mouse wheel scroll speed"
+    },
+    {
+      "name": "skill-doctor",
+      "description": "Show which loaded skills are unused and costing context"
+    },
+    {
+      "name": "skills",
+      "description": "List available skills"
+    },
+    {
+      "name": "status",
+      "description": "Show Claude Code status including version, model, account, API connectivity, and tool statuses"
+    },
+    {
+      "name": "stickers",
+      "description": "Order Claude Code stickers"
+    },
+    {
+      "name": "subtask",
+      "description": "Send a subagent off with your full context; its result comes back here"
+    },
+    {
+      "name": "tasks",
+      "description": "View and manage everything running in the background"
+    },
+    {
+      "name": "teleport",
+      "description": "Send this session to the cloud, or resume one from claude.ai"
+    },
+    {
+      "name": "terminal-setup",
+      "description": "Install Shift+Enter key binding for newlines"
+    },
+    {
+      "name": "theme",
+      "description": "Change the theme"
+    },
+    {
+      "name": "tui",
+      "description": "Set the terminal UI renderer (default | fullscreen)"
+    },
+    {
+      "name": "ultrareview",
+      "description": "Start a cloud agent that finds and verifies bugs in your branch (~5-10 min, $5-$25 USD) · Runs in Claude Code on the web."
+    },
+    {
+      "name": "upgrade",
+      "description": "Upgrade to Max for higher rate limits and more Opus"
+    },
+    {
+      "name": "usage",
+      "description": "Show session cost, plan usage, and activity stats"
+    },
+    {
+      "name": "usage-credits",
+      "description": "Configure usage credits or request them from your admin when you hit a limit"
+    },
+    {
+      "name": "voice",
+      "description": "Toggle voice mode"
+    },
+    {
+      "name": "web-setup",
+      "description": "Set up Claude Code on the web with your GitHub account"
+    },
+    {
+      "name": "workflows",
+      "description": "Browse running and completed workflows"
+    },
+    {
+      "name": "statusline",
+      "description": "Set up Claude Code's status line UI"
+    }
+  ]
+}

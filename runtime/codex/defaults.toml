@@ -1,0 +1,20 @@
+# Swift defaults for new Codex processes. Explicit user configuration and CLI
+# options take precedence. No account identities or credentials belong here.
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+
+[analytics]
+enabled = false
+
+[feedback]
+enabled = false
+
+[otel]
+log_user_prompt = false
+exporter = "none"
+trace_exporter = "none"
+metrics_exporter = "none"
+
+[tui]
+status_line = ["model-with-reasoning", "account", "weekly-limit", "current-dir", "project-name", "git-branch", "run-state", "context-used", "five-hour-limit", "task-progress"]
+status_line_use_colors = true

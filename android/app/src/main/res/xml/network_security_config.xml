@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- User-entered LAN addresses may use HTTP; HTTPS uses the platform trust store. -->
+    <base-config cleartextTrafficPermitted="true" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="false">150.158.39.216</domain>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="@raw/swift_management_ca" />
+        </trust-anchors>
+    </domain-config>
+</network-security-config>
