@@ -1,6 +1,6 @@
 {
   "name": "swift",
-  "version": "0.22.1",
+  "version": "0.23.2",
   "private": true,
   "license": "Apache-2.0",
   "description": "Swift: direct server and clients for native Agent sessions",
@@ -48,7 +48,9 @@
     "check:repository": "node scripts/check/repository.js",
     "harness:network": "npm run harness:desktop",
     "harness:renderers": "node scripts/testing/renderer-recovery-harness.js",
-    "release:source": "node scripts/release/package-source.js"
+    "release:source": "node scripts/release/package-source.js",
+    "publish:github": "node scripts/release/sync-github.js",
+    "release:github": "node scripts/release/github-release.js"
   },
   "engines": {
     "node": ">=22.13"

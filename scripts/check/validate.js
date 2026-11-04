@@ -7,6 +7,7 @@ const root = path.resolve(__dirname, '../..');
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const run = (name) => [npm, ['run', name]];
 const lanes = {
+  readability: [[process.execPath, ['scripts/testing/readability-harness.js']]],
   'terminal-sync-output': [[process.execPath, ['scripts/testing/terminal-sync-output-harness.js']]],
   'terminal-background': [
     [process.execPath, ['scripts/testing/terminal-background-harness.js']],
@@ -27,6 +28,7 @@ const lanes = {
     run('harness:recovery'),
     run('harness:providers'),
   ],
+  'desktop-start': [[process.execPath, ['scripts/testing/desktop-start-harness.js']]],
   'desktop-startup': [[process.execPath, ['scripts/testing/windows-startup-harness.js']]],
   'windows-install': [[process.execPath, ['scripts/testing/windows-install-harness.js']]],
   'connection-lifecycle': [

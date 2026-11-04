@@ -2,7 +2,9 @@
 // Rust owns credentials. Authentication failures return to the installed connection screen.
 (() => {
   const original = window.fetch.bind(window);
-  let leaving = false;
+  let leaving = false,
+    initialConfig = window === window.top;
+  const connectionId = location.pathname.match(/^\/e\/([a-f0-9]{64})(?:\/|$)/)?.[1];
   const page = crypto.getRandomValues(new Uint32Array(1))[0],
     started = performance.now();
   // Native storage keeps the newest 64 events, including failures late in a long session.
@@ -39,8 +41,13 @@
     window.StudioConnectionTrace('promise-error', event.reason || {}),
   );
   window.fetch = async (...args) => {
-    const response = await original(...args),
-      url = new URL(typeof args[0] === 'string' ? args[0] : args[0].url, location.href);
+    const url = new URL(typeof args[0] === 'string' ? args[0] : args[0].url, location.href);
+    const startup =
+      initialConfig &&
+      url.origin === location.origin &&
+      url.pathname === `/e/${connectionId}/api/config`;
+    if (startup) initialConfig = false;
+    const response = await original(...args);
     if (
       response.status === 401 &&
       !args[1]?.handleAuthError &&
@@ -50,6 +57,11 @@
     ) {
       leaving = true;
       setTimeout(() => location.assign('/connect?auth=1'), 200);
+    } else if (startup && !response.ok && !args[1]?.handleAuthError && !leaving) {
+      // Only a failed initial restore returns to selection. A later interruption
+      // keeps the running window, its local view and its drafts in place.
+      leaving = true;
+      location.assign(`/connect?failed=${connectionId}`);
     }
     return response;
   };

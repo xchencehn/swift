@@ -1,40 +1,145 @@
-<button id="connectionBack" class="connection-back" type="button" hidden>返回会话</button>
-<section aria-labelledby="savedHeading" id="savedSection" hidden>
-  <h2 id="savedHeading">已保存的服务器</h2>
-  <div id="profiles"></div>
-</section>
-<section>
-  <button id="addServer" type="button" aria-haspopup="dialog" aria-controls="addServerDialog">
-    添加服务器
-  </button>
-  <p id="serverListStatus" role="status" aria-live="polite"></p>
+<div class="server-manager">
+  <div class="server-manager-heading">
+    <div>
+      <h2>服务器</h2>
+      <p class="server-manager-description">选择服务器，继续你的会话。</p>
+    </div>
+    <button
+      id="addServer"
+      class="server-button server-button-secondary"
+      type="button"
+      aria-haspopup="dialog"
+      aria-controls="addServerDialog"
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>添加服务器
+    </button>
+  </div>
+  <div id="serverFeedback" class="server-feedback" hidden>
+    <p id="serverListStatus" role="status" aria-live="polite"></p>
+    <div class="server-feedback-actions">
+      <button id="retryServerList" class="server-text-button" type="button">重试</button
+      ><button id="repairServer" class="server-text-button" type="button" hidden>编辑连接</button>
+    </div>
+  </div>
+  <div id="serverLoading" class="server-loading" aria-label="正在读取服务器">
+    <span></span><span></span>
+  </div>
+  <div id="serverEmpty" class="server-empty" hidden>
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="3" y="4" width="18" height="13" rx="2" />
+      <path d="M8 21h8M12 17v4M8 10h8" />
+    </svg>
+    <h3>从一台服务器开始</h3>
+    <p>在电脑或远程主机上运行 <code>swift</code>，<br />然后添加它显示的连接链接。</p>
+  </div>
+  <label id="serverSearchField" class="server-search" hidden
+    ><svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="10.5" cy="10.5" r="6.5" />
+      <path d="m16 16 4 4" /></svg
+    ><input
+      id="serverSearch"
+      type="search"
+      aria-label="搜索服务器"
+      placeholder="搜索名称或地址"
+      autocomplete="off"
+      spellcheck="false"
+  /></label>
+  <div class="server-manager-content">
+    <section id="continueSection" class="server-continue" hidden aria-labelledby="continueName">
+      <div class="server-continue-top">
+        <svg class="server-machine-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="3" y="3" width="18" height="7" rx="2" />
+          <rect x="3" y="14" width="18" height="7" rx="2" />
+          <path d="M7 6.5h.01M7 17.5h.01" /></svg
+        ><span id="continueContext" class="server-context">上次连接</span
+        ><button
+          id="continueMore"
+          class="server-icon-button"
+          type="button"
+          aria-label="管理上次连接的服务器"
+          aria-haspopup="menu"
+          aria-expanded="false"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="5" cy="12" r="1" />
+            <circle cx="12" cy="12" r="1" />
+            <circle cx="19" cy="12" r="1" />
+          </svg>
+        </button>
+      </div>
+      <h3 id="continueName"></h3>
+      <p id="continueAddress" class="server-address"></p>
+      <div class="server-continue-actions">
+        <button id="connectionBack" class="server-button server-button-primary" type="button">
+          <span data-button-label>继续会话</span
+          ><svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 12h14m-6-6 6 6-6 6" />
+          </svg></button
+        ><button id="continueNewWindow" class="server-text-button" type="button">
+          在新窗口打开
+        </button>
+      </div>
+    </section>
+    <section id="savedSection" class="server-saved" aria-labelledby="savedHeading" hidden>
+      <div class="server-list-heading">
+        <h3 id="savedHeading">已保存的服务器</h3>
+        <span id="serverCount"></span>
+      </div>
+      <div id="profiles" class="server-profiles"></div>
+      <div id="serverNoResults" class="server-no-results" hidden>
+        <p>没有匹配的服务器。</p>
+        <button id="clearServerSearch" class="server-text-button" type="button">清除搜索</button>
+      </div>
+    </section>
+  </div>
+  <div
+    id="serverActions"
+    class="server-actions-menu"
+    popover="auto"
+    role="menu"
+    aria-label="服务器操作"
+  >
+    <button id="openServerWindow" type="button" role="menuitem">在新窗口打开</button
+    ><button id="editServer" type="button" role="menuitem">编辑服务器</button
+    ><button id="removeServer" class="server-destructive" type="button" role="menuitem">
+      移除服务器
+    </button>
+  </div>
+  <dialog
+    id="removeServerDialog"
+    class="server-dialog server-remove-dialog"
+    aria-labelledby="removeServerTitle"
+    aria-describedby="removeServerDescription"
+  >
+    <h2 id="removeServerTitle">移除服务器？</h2>
+    <p id="removeServerName"></p>
+    <p id="removeServerDescription" class="server-form-hint">
+      只移除此设备保存的连接，服务器上的会话会继续运行。
+    </p>
+    <p id="removeServerStatus" role="status" aria-live="polite"></p>
+    <div class="server-dialog-actions">
+      <button id="cancelRemoveServer" class="server-button server-button-secondary" type="button">
+        取消</button
+      ><button id="confirmRemoveServer" class="server-button server-button-danger" type="button">
+        移除服务器
+      </button>
+    </div>
+  </dialog>
   <dialog id="addServerDialog" class="server-dialog" aria-labelledby="addServerTitle">
     <div class="server-dialog-heading">
       <h2 id="addServerTitle">添加服务器</h2>
-      <button id="closeAddServer" type="button" aria-label="关闭添加服务器" title="关闭">
-        <svg
-          viewBox="0 0 24 24"
-          width="18"
-          height="18"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.5"
-          aria-hidden="true"
-        >
-          <path d="m6 6 12 12M18 6 6 18" />
-        </svg>
+      <button
+        id="closeAddServer"
+        class="server-icon-button"
+        type="button"
+        aria-label="关闭添加服务器"
+        title="关闭"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
       </button>
     </div>
     <form id="connectionForm">
-      <label for="name">服务器名称（可选）</label
-      ><input id="name" maxlength="80" placeholder="例如：我的电脑" />
-      <fieldset>
-        <legend>连接方式</legend>
-        <label><input type="radio" name="mode" value="local" checked />同一系统</label
-        ><label><input type="radio" name="mode" value="wsl" />Windows / WSL</label
-        ><label><input type="radio" name="mode" value="lan" />局域网</label>
-      </fieldset>
-      <div id="directFields">
+      <div id="directFields" class="server-form-field">
         <label for="address">服务器连接链接</label
         ><input
           id="address"
@@ -43,25 +148,37 @@
           spellcheck="false"
           autocomplete="off"
           required
+          aria-describedby="connectionHint"
         />
-        <p id="connectionHint" class="hint">同一系统内直接连接，无需认证。</p>
+        <p id="connectionHint" class="server-form-hint">
+          本机与 Windows / WSL 直接连接，无需认证。其他设备请粘贴服务器输出的完整连接链接。
+        </p>
       </div>
-      <input id="token" type="hidden" value="" />
-      <div id="editServerRootFields" hidden>
+      <div class="server-form-field">
+        <label for="name">服务器名称（可选）</label
+        ><input id="name" maxlength="80" placeholder="例如：工作电脑" autocomplete="off" />
+      </div>
+      <div id="editServerRootFields" class="server-form-field" hidden>
         <label for="editServerRoot">根目录</label
         ><input id="editServerRoot" type="text" autocomplete="off" spellcheck="false" />
         <div class="server-root-actions">
-          <button id="editServerRootBrowse" type="button">选择目录</button
-          ><button id="retryServerRoot" type="button" hidden>重新读取</button>
+          <button id="editServerRootBrowse" class="server-text-button" type="button">
+            选择目录</button
+          ><button id="retryServerRoot" class="server-text-button" type="button" hidden>
+            重新读取
+          </button>
         </div>
-        <p id="editServerRootStatus" class="hint" role="status"></p>
+        <p id="editServerRootStatus" class="server-form-hint" role="status"></p>
       </div>
       <div id="editServerUpdates" hidden></div>
-      <p id="status" role="status" aria-live="polite"></p>
+      <p id="status" class="server-form-status" role="status" aria-live="polite"></p>
       <div class="server-dialog-actions">
-        <button id="cancelAddServer" type="button">取消</button
-        ><button id="connectButton" type="submit">添加并连接</button>
+        <button id="cancelAddServer" class="server-button server-button-secondary" type="button">
+          取消</button
+        ><button id="connectButton" class="server-button server-button-primary" type="submit">
+          添加并连接
+        </button>
       </div>
     </form>
   </dialog>
-</section>
+</div>

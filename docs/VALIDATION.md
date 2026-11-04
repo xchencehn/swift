@@ -39,6 +39,8 @@ CI 使用公开可获得的工具链和 debug/无安装包构建，不依赖个�
 
 纯文档与格式修改不要求重新运行所有原生性能专项。目录、资源、协议生成和安装入口变化需要验证相应的实际读取与打包路径，不能只检查文件存在。
 
+`readability` 使用合成中文与英文内容覆盖五档窗口、深浅主题、聊天与 Markdown 的字号和行长、文件列表、字号放大、文字间距覆盖及文件往返后的草稿。截图和尺寸记录位于 `artifacts/readability/`。该专项不等同于 Windows 实际阅读或用户长期舒适度验收。
+
 ## Windows 与 Android
 
 Windows UI、截图与安装验证使用现有隔离虚拟机。设置 `SWIFT_WINDOWS_VM_CONSOLE` 指向该虚拟机的控制台助手，多个工作副本使用共同的 `SWIFT_WINDOWS_LOCK_ROOT`。传输限制为虚拟机网桥和本次资源，不重置、停止或注销虚拟机，不操作其中其他应用。
@@ -58,3 +60,5 @@ Android 工程检查与物理手机反馈分开。浏览器合成触摸、自动
 `workspace-files` 覆盖原位代码编辑及 Markdown 源码模式、编辑前后同一实例、行列位置、缩进、撤销重做、查找、保存时继续输入、外部修改冲突，以及聊天与 Markdown 预览不加载编辑器。`SWIFT_WINDOWS_FILES=1 npm run validate -- windows` 在隔离 Windows 的真实 WebView2 中验证中文多行粘贴、保存后的同一可访问节点、文件字节和放弃确认；实际安装另用 `windows-install`。
 
 `npm run validate -- terminal-sync-output` 在四档隔离 Firefox 中将大于16 KiB的原生 ANSI 同步输出拆为多个数据块，并延迟结束标记，检查画面不缺行、不移动、草稿保留和零原生输入。`SWIFT_TERMINAL_SYNC_OUTPUT` 指定证据目录。使用 `--baseline` 运行专项脚本可比较修复前的渲染；计时从最后一个数据块发送后开始，不代表完整公网延迟。`SWIFT_WINDOWS_RUNTIME_BIN=/明确路径/herdr SWIFT_WINDOWS_TERMINAL_ANSI=1 npm run validate -- windows` 在规定 Windows 虚拟机验证旧运行时的 ANSI 兼容路径；默认仍严格验证 `cells-v1`，两种格式分别记录。
+
+`desktop-start` 使用实际Rust网关与合成服务器，在1440、1918、768、390和320px验证开始页的空态、连接失败、既有连接修复与草稿、搜索、菜单焦点、新窗口、编辑、移除和初始恢复失败；它不向生产会话发送输入，也不代替Windows原生验收。

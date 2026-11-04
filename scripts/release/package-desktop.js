@@ -53,16 +53,12 @@ fs.writeFileSync(
 );
 const latest = {
   version,
-  notes:
-    '统一聊天与Markdown预览代码框，采用细边框和彩色语法，右上角提供复制与换行操作，支持浅色主题和触屏。',
+  notes: process.env.SWIFT_RELEASE_NOTES || `Swift ${version}`,
   pub_date: new Date().toISOString(),
   platforms: {
     'windows-x86_64': {
       signature: fs.readFileSync(path.join(output, installer + '.sig'), 'utf8').trim(),
-      url: new URL(
-        installer,
-        require('../../desktop/src-tauri/tauri.conf.json').plugins.updater.endpoints[0],
-      ).href,
+      url: `https://github.com/xchencehn/swift/releases/download/v${version}/${installer}`,
     },
   },
 };

@@ -96,8 +96,9 @@ async function main() {
         assert.equal(await page.locator('#settingsConnection .check-client-update').count(), 0);
         for (const index of [0, 1]) {
           await page
-            .getByRole('button', { name: `编辑服务器：服务器 ${index + 1}`, exact: true })
+            .getByRole('button', { name: `管理服务器：服务器 ${index + 1}`, exact: true })
             .click();
+          await page.getByRole('menuitem', { name: '编辑服务器', exact: true }).click();
           await expect(page.locator('.server-update-version')).toContainText(
             fixtures[index].state.serverVersion,
           );
@@ -135,11 +136,13 @@ async function main() {
               };
             }),
         );
-        await page.getByRole('button', { name: '编辑服务器：服务器 1', exact: true }).click();
+        await page.getByRole('button', { name: '管理服务器：服务器 1', exact: true }).click();
+        await page.getByRole('menuitem', { name: '编辑服务器', exact: true }).click();
         await page.locator('.server-update-settings button').click();
         await expect.poll(() => Boolean(resolveDelayed)).toBe(true);
         await page.locator('#cancelAddServer').click();
-        await page.getByRole('button', { name: '编辑服务器：服务器 2', exact: true }).click();
+        await page.getByRole('button', { name: '管理服务器：服务器 2', exact: true }).click();
+        await page.getByRole('menuitem', { name: '编辑服务器', exact: true }).click();
         await resolveDelayed();
         await expect(page.locator('.server-update-version')).toContainText('0.18.0');
         await expect(page.locator('.server-update-settings [role=status]')).toBeEmpty();

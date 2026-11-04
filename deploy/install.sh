@@ -5,13 +5,17 @@ source_dir=$(cd -- "$(dirname -- "$script_file")/.." && pwd -P)
 root_dir=${SWIFT_ROOT_DIR:-${AGENT_STUDIO_ROOT_DIR:-"$HOME/workdir"}}
 herdr_bin=${HERDR_BIN:-"$HOME/.local/bin/herdr"}
 start_services=0
+previous_source=''
+skip_runtime=0
 while (($#)); do
   case "$1" in
     --root) root_dir=$2; shift 2 ;;
     --herdr) herdr_bin=$2; shift 2 ;;
     --start) start_services=1; shift ;;
     --no-start) start_services=0; shift ;;
-    *) echo 'Usage: deploy/install.sh [--root ABSOLUTE_DIRECTORY] [--herdr ABSOLUTE_BINARY] [--start|--no-start]' >&2; exit 2 ;;
+    --previous-source) previous_source=$2; shift 2 ;;
+    --skip-runtime) skip_runtime=1; shift ;;
+    *) echo 'Usage: deploy/install.sh [--root ABSOLUTE_DIRECTORY] [--herdr ABSOLUTE_BINARY] [--start|--no-start] [--previous-source DIRECTORY] [--skip-runtime]' >&2; exit 2 ;;
   esac
 done
 node -e 'const [major,minor]=process.versions.node.split(".").map(Number); if(major<22||(major===22&&minor<13))process.exit(1)' || { echo 'Node.js >= 22.13 is required.' >&2; exit 1; }
@@ -19,18 +23,22 @@ command -v python3 >/dev/null
 [[ -x "$herdr_bin" ]] || { echo 'Install a compatible Herdr binary first.' >&2; exit 1; }
 [[ "$root_dir" = /* && "$herdr_bin" = /* ]] || { echo 'Use absolute paths.' >&2; exit 2; }
 # Validate ownership before creating configuration or installing dependencies.
-python3 - "$source_dir" <<'PYOWN'
+python3 - "$source_dir" "$previous_source" <<'PYOWN'
 import pathlib,sys
 source=pathlib.Path(sys.argv[1]).resolve()
+previous=pathlib.Path(sys.argv[2]).resolve() if sys.argv[2] else None
+if previous and (source/'.local').resolve() != (previous/'.local').resolve():
+    raise RuntimeError('An upgrade must preserve the previous installation state directory.')
 for name in ['swift.service','swift-runtime.service']:
     link=pathlib.Path.home()/'.config/systemd/user'/name
-    owned=[source/'deploy/systemd'/name,source/'.local/config/systemd'/name]
+    owned=[p.resolve() for base in [source,previous] if base for p in [base/'deploy/systemd'/name,base/'.local/config/systemd'/name]]
     if (link.exists() or link.is_symlink()) and (not link.is_symlink() or link.resolve() not in owned):
         raise RuntimeError('Existing service belongs to another installation: '+name)
 launcher=pathlib.Path.home()/'.local/bin/swift'
 if launcher.exists() or launcher.is_symlink():
     managed=launcher.is_file() and b'# Swift-managed execution environment' in launcher.read_bytes()
-    if not managed and (not launcher.is_symlink() or launcher.resolve()!=source/'deploy/swift.sh'):
+    launchers=[base/'deploy/swift.sh' for base in [source,previous] if base]
+    if not managed and (not launcher.is_symlink() or launcher.resolve() not in launchers):
         raise RuntimeError('Existing swift command belongs to another installation: '+str(launcher))
 PYOWN
 python3 "$source_dir/deploy/cleanup-legacy-environment.py" "$source_dir"
@@ -77,7 +85,7 @@ print('Project-local configuration preserved; systemd entries link to this proje
 PY
 # Install Swift's Codex defaults and extensions when the Codex npm package exists.
 # Verification, immutable releases and credentials remain in their own Swift state directory.
-if [[ -f "$source_dir/deploy/codex/install.py" ]]; then
+if ((!skip_runtime)) && [[ -f "$source_dir/deploy/codex/install.py" ]]; then
   codex_python="${SWIFT_CODEX_PYTHON:-/usr/bin/python3}"
   "$codex_python" -B "$source_dir/deploy/codex/install.py" --source "$source_dir" --auto
 fi

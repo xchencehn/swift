@@ -30,6 +30,7 @@ const entries = [
   'deploy/windows',
   'deploy/preview',
   'deploy/install.sh',
+  'deploy/github-install.py',
   'deploy/cleanup-legacy-environment.py',
   'deploy/swift.sh',
   'deploy/herdr',
@@ -76,6 +77,7 @@ try {
     encoding: 'utf8',
   }).trim();
   const source = require('../lib/source-fingerprint').sourceFingerprint(root);
+  if (source.dirty) throw new Error('Commit the source before packaging a release.');
   const metadata = { version, ...source, node: process.version, artifacts: [] };
   fs.writeFileSync(
     path.join(directory, 'VERSION.json'),

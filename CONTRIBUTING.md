@@ -51,3 +51,5 @@ npm run validate -- android-debug
 ## 导出源码
 
 提交并固定源码后运行 `npm run release:source`，在 `artifacts/release/<version>/source/` 生成仅包含当前 Git 树的源码包、清单和 SHA256。该包不包含 Git 历史、其他分支或本地忽略文件，可用于检查准备公开的具体内容。
+
+维护者会话开发完成后按[GitHub 发布与部署](docs/RELEASING.md)继续执行公开同步、CI、Release 和适用环境的安装。服务器 Release 自动由精确提交的完整 CI 触发；客户端仍需签名与平台验收。

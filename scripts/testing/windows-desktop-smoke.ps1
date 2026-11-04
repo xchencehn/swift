@@ -393,10 +393,13 @@ try {
   Invoke-Control (Find-Control 'windows-file.md' 'TreeItem')
   Find-Control 'Windows 文件验收' | Out-Null
   $fileCopyCode=Find-Control '复制代码' 'Button'
+  [SwiftWindow]::SetForegroundWindow($script:mainWindow) | Out-Null
   $fileCopyCode.SetFocus()
+  Start-Sleep -Milliseconds 150
+  if([SwiftWindow]::GetForegroundWindow() -ne $script:mainWindow -or -not $fileCopyCode.Current.HasKeyboardFocus){throw 'The isolated Markdown code copy button does not own keyboard focus.'}
   [SwiftWindow]::keybd_event(0x20,0,0,[UIntPtr]::Zero)
   [SwiftWindow]::keybd_event(0x20,0,2,[UIntPtr]::Zero)
-  Start-Sleep -Milliseconds 250
+  Find-Control '复制代码，已复制' 'Button' | Out-Null
   $copiedCode=& powershell.exe -NoProfile -STA -Command 'Get-Clipboard -Raw'
   if(($copiedCode -join "`n").Replace("`r`n","`n").TrimEnd() -ne "const answer = `"中文高亮`";`nconsole.log(answer, 42);"){throw 'Markdown code copy changed the Windows clipboard content.'}
   Find-Control 'Markdown 阅读宽度，左右键调整，Home 恢复默认' | Out-Null
@@ -406,8 +409,15 @@ try {
   if(-not $outlineEntry -or $outlineEntry.Current.IsOffscreen){Invoke-Control (Find-Control '目录' 'Button')}
   Invoke-Control (Find-Control '保存操作' 'Button')
   Capture-Window 'native-files.png'
-  Invoke-Control (Find-Control '复制全文' 'Button')
-  Start-Sleep -Milliseconds 250
+  # Exercise clipboard access with native keyboard activation, as for code copy above.
+  $fileCopyAll=Find-Control '复制全文' 'Button'
+  [SwiftWindow]::SetForegroundWindow($script:mainWindow) | Out-Null
+  $fileCopyAll.SetFocus()
+  Start-Sleep -Milliseconds 150
+  if([SwiftWindow]::GetForegroundWindow() -ne $script:mainWindow -or -not $fileCopyAll.Current.HasKeyboardFocus){throw 'The isolated full-file copy button does not own keyboard focus.'}
+  [SwiftWindow]::keybd_event(0x20,0,0,[UIntPtr]::Zero)
+  [SwiftWindow]::keybd_event(0x20,0,2,[UIntPtr]::Zero)
+  Find-Control '复制全文，已复制' 'Button' | Out-Null
   $copied=& powershell.exe -NoProfile -STA -Command 'Get-Clipboard -Raw'
   $originalFile="# Windows 文件验收`n`n读取与修改临时文件。`n`n"+'```javascript'+"`nconst answer = `"中文高亮`";`nconsole.log(answer, 42);`n"+'```'+"`n`n## 保存操作`n`n这里是第二节。`n"
   if(($copied -join "`n").Replace("`r`n","`n").TrimEnd() -ne $originalFile.TrimEnd()){throw 'Native full-file copy did not reach the guest clipboard intact.'}
@@ -502,7 +512,7 @@ try {
  }
  if($windows.Count -ne 2){throw 'The second launch did not create a second native window.'}
  $script:mainWindow=@($windows | Where-Object {$_ -ne $firstWindow})[0]
- Invoke-Control (Find-Control '返回会话' 'Button')
+ Invoke-Control (Find-Control '继续会话' 'Button')
  Assert-TerminalPage
  Capture-Window 'native-multi-window.png'
  # Closing the original main window must preserve the new window and gateway.
@@ -545,7 +555,8 @@ try {
  }
  if($Phase -in @('all','guide')){
  Start-Client
- Invoke-Control (Find-Control '返回会话' 'Button')
+ $saved=Get-Content -LiteralPath (Join-Path $dataDirectory 'connections.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+ Invoke-Control (Find-Control ('连接到 '+$saved.profiles[0].name) 'Button')
  Assert-TerminalPage
  [SwiftWindow]::SendMessage($script:mainWindow,0x0010,[IntPtr]::Zero,[IntPtr]::Zero) | Out-Null
  if(-not $process.WaitForExit(10000)) { throw 'Native client did not exit after returning from the guide.' }
@@ -585,7 +596,8 @@ try {
  Invoke-Control (Find-Control '服务器' 'Button')
  Find-Control '已保存的服务器' | Out-Null
  $savedServer=Get-Content -LiteralPath (Join-Path $dataDirectory 'connections.json') -Raw -Encoding UTF8 | ConvertFrom-Json
- Invoke-Control (Find-Control ('编辑服务器：'+$savedServer.profiles[0].name) 'Button')
+ Invoke-Control (Find-Control ('管理服务器：'+$savedServer.profiles[0].name) 'Button')
+ Invoke-Control (Find-Control '编辑服务器' 'MenuItem')
  Find-Control '根目录' 'Edit' | Out-Null
  Invoke-Control (Find-ExecutionControl '检查更新' 'Button')
  Find-ExecutionControl '当前服务器已是最新版本。' 'Text' | Out-Null
@@ -593,7 +605,7 @@ try {
  Capture-Window 'native-edit-server.png'
  Set-Control (Find-ExecutionControl '服务器名称（可选）' 'Edit') '原生编辑服务器'
  Invoke-Control (Find-ExecutionControl '保存' 'Button')
- Find-Control '编辑服务器：原生编辑服务器' 'Button' | Out-Null
+ Find-Control '管理服务器：原生编辑服务器' 'Button' | Out-Null
  Capture-Window 'native-restored.png'
  Invoke-Control (Find-ExecutionControl '添加服务器' 'Button')
  Find-Control '服务器名称（可选）' 'Edit' | Out-Null

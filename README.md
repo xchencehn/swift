@@ -24,7 +24,7 @@ Swift 只有服务器和客户端，不需要中转服务或 Swift 账号。
 
 服务器需要 Node.js 22.13+、Python 3 和兼容的 Herdr。Linux / WSL 的服务安装使用 systemd 用户服务。
 
-获取源码并进入仓库后：
+正式安装与升级使用 [GitHub Releases](https://github.com/xchencehn/swift/releases)的校验安装入口，命令与迁移说明见[发布部署流程](docs/RELEASING.md#安装与升级服务器)。本地源码开发进入仓库后：
 
 ```bash
 npm ci

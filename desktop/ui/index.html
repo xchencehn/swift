@@ -16,16 +16,13 @@
     <script defer src="/desktop/connect.js"></script>
   </head>
   <body>
-    <main>
-      <header>
-        <img src="/desktop/icon.png" alt="" />
-        <div>
-          <h1>Swift</h1>
-          <p>连接你的会话。</p>
-        </div>
-      </header>
-      <div id="connectionSetup">__CONNECTION_SETTINGS__</div>
-      <footer><span>执行端管理会话，客户端保存本地副本。</span></footer>
-    </main>
+    <header class="connect-brand">
+      <img src="/desktop/icon.png" width="32" height="32" alt="" /><span>Swift</span>
+    </header>
+    <main class="connect-main"><div id="connectionSetup">__CONNECTION_SETTINGS__</div></main>
+    <footer class="connect-footer">
+      <span>会话在服务器上继续运行。</span
+      ><button id="newWindow" type="button">新建窗口 <kbd>Ctrl Shift N</kbd></button>
+    </footer>
   </body>
 </html>

@@ -63,19 +63,14 @@ async function main() {
       try {
         await page.goto(client.bootstrap);
         await page.getByRole('button', { name: '添加服务器', exact: true }).click();
-        await expect(page.getByRole('radio', { name: '同一系统', exact: true })).toBeChecked();
-        await page.getByRole('radio', { name: 'Windows / WSL', exact: true }).check();
-        await expect(page.locator('#connectionHint')).toContainText('无需认证');
-        await page.getByRole('radio', { name: '局域网', exact: true }).check();
+        await expect(page.locator('#connectionHint')).toContainText('Windows / WSL');
         assert.equal(await page.getByText('Swift 账号', { exact: true }).count(), 0);
-        await page.getByRole('radio', { name: '同一系统', exact: true }).check();
         await page.locator('#address').fill(fixture.fixture.url);
         await page.locator('#name').fill('本机测试机');
         await page.getByRole('button', { name: '添加并连接', exact: true }).click();
         await expect(page.locator('#appShell')).toHaveAttribute('data-connection', 'connected');
         await page.goto(client.origin + '/connect');
         await page.getByRole('button', { name: '添加服务器', exact: true }).click();
-        await page.getByRole('radio', { name: '局域网', exact: true }).check();
         await page.locator('#address').fill(fixture.url + '/?token=wrong-fixture');
         await page.getByRole('button', { name: '添加并连接', exact: true }).click();
         await expect(page.locator('#status')).toContainText('Token');
@@ -132,7 +127,7 @@ async function main() {
           width,
           ok: true,
           localNoToken: true,
-          wslChoiceVerified: true,
+          wslGuidanceVerified: true,
           lanToken: true,
           rejectedAndRevoked: true,
           draftPreserved: true,

@@ -8,7 +8,8 @@ async function createTokenFixture(options) {
   const fixture = await createFixture(options),
     target = new URL(fixture.url);
   const state = { token: 'fixture-direct-token', documentQueries: [], denied: 0, authenticated: 0 };
-  const auth = createHttp({ tokens: [state.token], maxBodyBytes: 1024 * 1024 });
+  let expectedToken = state.token,
+    auth = createHttp({ tokens: [state.token], maxBodyBytes: 1024 * 1024 });
   let filesRouter = null;
   if (options?.workspaceDirectory) {
     fixture.state.rootDirectory = options.workspaceDirectory;
@@ -31,8 +32,8 @@ async function createTokenFixture(options) {
     const url = new URL(req.url, 'http://localhost');
     if (url.pathname === '/') state.documentQueries.push(url.search);
     if (url.pathname.startsWith('/api/') || url.pathname === '/fixture/echo') {
-      if (state.token !== 'fixture-direct-token' || !auth.requireAuth(req, res, url)) {
-        if (state.token !== 'fixture-direct-token') {
+      if (state.token !== expectedToken || !auth.requireAuth(req, res, url)) {
+        if (state.token !== expectedToken) {
           res.writeHead(401, { 'content-type': 'application/json' });
           res.end(JSON.stringify({ code: 'UNAUTHORIZED' }));
         }
@@ -70,7 +71,7 @@ async function createTokenFixture(options) {
   });
   server.on('upgrade', (req, socket, head) => {
     if (
-      state.token !== 'fixture-direct-token' ||
+      state.token !== expectedToken ||
       !auth.isAuthorized(req, new URL(req.url, 'http://localhost'))
     ) {
       socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
@@ -96,6 +97,10 @@ async function createTokenFixture(options) {
     state,
     port: server.address().port,
     url: `http://127.0.0.1:${server.address().port}`,
+    rotateToken(token) {
+      state.token = expectedToken = token;
+      auth = createHttp({ tokens: [token], maxBodyBytes: 1024 * 1024 });
+    },
     async close() {
       server.closeAllConnections();
       await new Promise((resolve) => server.close(resolve));

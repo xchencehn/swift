@@ -13,7 +13,7 @@ test('server update compares releases and keeps downloads in the official server
   assert.equal(update.currentVersion, '0.19.9');
   assert.equal(
     update.downloadUrl,
-    'https://150.158.39.216:8002/desktop/swift-0.20.0-server.tar.gz',
+    'https://github.com/xchencehn/swift/releases/download/v0.20.0/swift-0.20.0-server.tar.gz',
   );
   for (const version of ['0.20.0', '0.20.1', '1.0.0'])
     assert.equal((await check({ version, read: async () => release })).available, false);
@@ -43,7 +43,7 @@ test('server update uses the existing HTTPS proxy without sending application cr
     process.env.HTTPS_PROXY = process.env.https_proxy = `http://127.0.0.1:${server.address().port}`;
     process.env.NO_PROXY = process.env.no_proxy = '';
     await assert.rejects(readRelease());
-    assert.deepEqual(received, { target: '150.158.39.216:8002', token: undefined });
+    assert.deepEqual(received, { target: 'github.com:443', token: undefined });
   } finally {
     keys.forEach((key, index) => {
       if (previous[index] === undefined) delete process.env[key];

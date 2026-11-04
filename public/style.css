@@ -10,6 +10,14 @@
 }
 :root {
   --font-mono: 'Cascadia Mono', 'Swift Terminal CJK', ui-monospace, Consolas, monospace;
+  --ui-font-size: calc(14px * var(--device-font-scale, 1));
+  --ui-secondary-font-size: calc(13px * var(--device-font-scale, 1));
+  --caption-font-size: calc(12px * var(--device-font-scale, 1));
+  --reading-font-size: calc(16px * var(--device-font-scale, 1));
+  --reading-line-height: 1.75;
+  --reading-width: calc(40 * var(--reading-font-size));
+  --code-font-size: calc(13px * var(--device-font-scale, 1));
+  --code-line-height: 1.7;
   --motion-feedback: 120ms;
   --motion-disclosure: 140ms;
   --motion-reorder: 180ms;
@@ -687,8 +695,8 @@ button:disabled {
   align-items: center;
   gap: 8px;
   min-width: 0;
-  height: 32px;
-  padding: 0 8px;
+  min-height: 36px;
+  padding: 8px;
   border-radius: 8px;
   color: var(--muted);
   background: transparent;
@@ -725,8 +733,8 @@ button:disabled {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
-  height: 32px;
-  padding: 0 8px 0 30px;
+  min-height: 36px;
+  padding: 8px 8px 8px 30px;
   margin: 1px 0;
   border: 0;
   border-radius: 8px;
@@ -772,11 +780,12 @@ button:disabled {
 .chat-hit-text {
   min-width: 0;
   display: grid;
-  gap: 3px;
+  gap: 4px;
 }
 .chat-hit-where {
   color: var(--faint);
-  font-size: calc(10px * var(--device-font-scale, 1));
+  font-size: var(--caption-font-size);
+  line-height: 1.5;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -796,7 +805,7 @@ button:disabled {
 }
 .chat-hit-excerpt {
   color: var(--muted);
-  font-size: calc(11.5px * var(--device-font-scale, 1));
+  font-size: var(--ui-secondary-font-size);
   line-height: 1.5;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -868,15 +877,15 @@ button:disabled {
   border: 0;
   color: var(--text);
 }
-/* 圆角 22px、padding 10/16、14px/22px 都是从 dsh 的气泡上量来的。 */
+/* 用户消息保留气泡分组，正文与回复使用同一阅读字号。 */
 .chat-msg[data-role='user'] {
   align-self: flex-end;
   width: fit-content;
   max-width: min(80%, 620px);
   padding: 10px 16px;
   border-radius: 22px;
-  font-size: calc(14px * var(--device-font-scale, 1));
-  line-height: calc(22px * var(--device-font-scale, 1));
+  font-size: var(--reading-font-size);
+  line-height: var(--reading-line-height);
 }
 .chat-msg[data-role='user'] {
   color: var(--text);
@@ -917,8 +926,8 @@ button:disabled {
 .chat-md h4,
 .chat-md h5,
 .chat-md h6 {
-  font-size: calc(13.5px * var(--device-font-scale, 1));
-  color: var(--muted);
+  font-size: 1em;
+  color: var(--text);
 }
 .chat-md ul,
 .chat-md ol {
@@ -932,7 +941,7 @@ button:disabled {
   padding: 1px 5px;
   border-radius: 5px;
   background: rgba(var(--surface-rgb, 255, 255, 255), 0.08);
-  font: calc(12px * var(--device-font-scale, 1))/1.5 var(--font-mono);
+  font: 0.9em/1.5 var(--font-mono);
   overflow-wrap: anywhere;
 }
 .chat-md pre {
@@ -1027,7 +1036,7 @@ button:disabled {
   margin: 0 0 10px;
   overflow-x: auto;
   border-collapse: collapse;
-  font-size: calc(12.5px * var(--device-font-scale, 1));
+  font-size: var(--ui-font-size);
 }
 .chat-md th,
 .chat-md td {
@@ -1107,7 +1116,7 @@ button:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: calc(11.5px * var(--device-font-scale, 1));
 }
 .chat-tool-row.running {
@@ -2239,11 +2248,11 @@ button:disabled {
 
 /* 会话界面的共同尺寸、层级与状态。网页和 Android WebView 使用同一份。 */
 :root {
-  --chat-default-content-width: calc(100% - clamp(48px, 10%, 160px));
+  --chat-default-content-width: min(var(--reading-width), calc(100% - 48px));
   --chat-content-width: var(--chat-default-content-width);
   --terminal-default-content-width: 100%;
-  --chat-font-size: calc(14px * var(--device-font-scale, 1));
-  --chat-line-height: 1.85;
+  --chat-font-size: var(--reading-font-size);
+  --chat-line-height: var(--reading-line-height);
   --line: rgba(var(--surface-rgb, 255, 255, 255), 0.09);
 }
 .chat-main {
@@ -2259,16 +2268,18 @@ button:disabled {
   margin-bottom: 6px;
 }
 .chat-tree-toggle {
-  min-height: 30px;
-  font-size: calc(13px * var(--device-font-scale, 1));
+  min-height: 36px;
+  font-size: var(--ui-font-size);
+  line-height: 1.43;
 }
 .chat-sidebar .session-item {
-  height: 30px;
+  height: auto;
   padding-left: 30px;
   border-radius: 10px;
 }
 .chat-sidebar .session-name {
-  font-size: calc(13px * var(--device-font-scale, 1));
+  font-size: var(--ui-font-size);
+  line-height: 1.43;
 }
 .chat-sidebar .session-item.active {
   background: var(--selection, #303038);
@@ -2362,9 +2373,9 @@ button:disabled {
   display: flex;
   min-height: 28px;
   margin-top: 0;
-  gap: 9px;
+  gap: 8px;
   margin-bottom: 8px;
-  font-size: calc(11px * var(--device-font-scale, 1));
+  font-size: var(--caption-font-size);
   color: var(--muted);
 }
 .chat-meta-button {
@@ -2373,22 +2384,25 @@ button:disabled {
   color: var(--muted);
 }
 .chat-md p {
-  margin-bottom: 14px;
+  margin-bottom: 1em;
 }
 .chat-md h1 {
-  font-size: calc(21px * var(--device-font-scale, 1));
+  font-size: 1.5em;
 }
 .chat-md h2 {
-  font-size: calc(18px * var(--device-font-scale, 1));
+  font-size: 1.25em;
 }
 .chat-md h3 {
-  font-size: calc(16px * var(--device-font-scale, 1));
+  font-size: 1.125em;
 }
 .chat-md h1,
 .chat-md h2,
-.chat-md h3 {
-  margin-top: 24px;
-  margin-bottom: 12px;
+.chat-md h3,
+.chat-md h4,
+.chat-md h5,
+.chat-md h6 {
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
 }
 .chat-md pre {
   --syn-text: var(--code-text);
@@ -2413,8 +2427,8 @@ button:disabled {
   padding: 16px 16px 18px;
   overflow-x: auto;
   color: var(--syn-text);
-  font-size: calc(13px * var(--device-font-scale, 1));
-  line-height: 1.8;
+  font-size: var(--code-font-size);
+  line-height: var(--code-line-height);
   tab-size: 4;
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar) transparent;
@@ -2549,7 +2563,7 @@ button:disabled {
   background: rgba(var(--surface-rgb, 255, 255, 255), 0.035);
 }
 .chat-tool-name {
-  font-size: calc(12px * var(--device-font-scale, 1));
+  font-size: var(--ui-secondary-font-size);
   font-weight: 500;
 }
 .chat-tool-row.running .chat-tool-detail {
@@ -2557,7 +2571,7 @@ button:disabled {
   white-space: nowrap;
 }
 .chat-tool-detail {
-  font-size: calc(11.5px * var(--device-font-scale, 1));
+  font-size: var(--caption-font-size);
   color: var(--tool-summary);
 }
 .chat-tools-mark {
@@ -2574,7 +2588,7 @@ button:disabled {
   overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font: calc(12px * var(--device-font-scale, 1))/1.75 var(--font-mono);
+  font: var(--code-font-size)/var(--code-line-height) var(--font-mono);
   color: var(--text);
   margin: 4px 0 14px;
 }
@@ -2805,9 +2819,6 @@ button:disabled {
   .chat-log {
     padding: 12px 18px 20px;
   }
-  .chat-msg {
-    font-size: calc(14px * var(--device-font-scale, 1));
-  }
   .chat-msg[data-role='user'] {
     max-width: 90%;
   }
@@ -2850,7 +2861,7 @@ button:disabled {
     display: none;
   }
   .chat-sidebar .session-item {
-    height: 32px;
+    height: auto;
   }
   .chat-tree-toggle {
     min-height: 32px;
@@ -2989,14 +3000,15 @@ button:disabled {
   }
 }
 .chat-tree-toggle {
-  font-size: calc(15px * var(--device-font-scale, 1));
+  font-size: var(--ui-font-size);
+  font-weight: 600;
 }
 .chat-sidebar .session-name {
-  font-size: calc(13px * var(--device-font-scale, 1));
-  line-height: calc(20px * var(--device-font-scale, 1));
+  font-size: var(--ui-font-size);
+  line-height: 1.43;
 }
 .chat-sidebar .session-item {
-  height: 34px;
+  height: auto;
 }
 .session-list[data-mode='recent'] .session-item {
   padding-left: 22px;
@@ -3381,8 +3393,8 @@ button:disabled {
   margin: 0 0 18px;
 }
 .project-doc-body:not(.project-doc-plain) {
-  font-size: calc(14px * var(--device-font-scale, 1));
-  line-height: 1.85;
+  font-size: var(--reading-font-size);
+  line-height: var(--reading-line-height);
 }
 .project-doc-body > :first-child {
   margin-top: 0;
@@ -3399,15 +3411,15 @@ button:disabled {
 }
 .project-doc-plain {
   margin: 0;
-  font: calc(12px * var(--device-font-scale, 1))/1.75 var(--font-mono);
+  font: var(--code-font-size)/var(--code-line-height) var(--font-mono);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 /* 代码直接铺在页面上，不套框；行号在左、淡色，长行在手机上折行、续行对齐正文（public/files/code-view.js）。
    颜色全部来自主题的 syn-*：深色是 One Dark，浅色是 GitHub Light，换主题即时生效。 */
 .code-view {
-  --code-size: calc(12.5px * var(--device-font-scale, 1));
-  --code-line: 1.7;
+  --code-size: var(--code-font-size);
+  --code-line: var(--code-line-height);
   margin: 0 -4px;
   font: var(--code-size)/var(--code-line) var(--font-mono);
   color: var(--syn-text);
@@ -3547,9 +3559,10 @@ button:disabled {
   width: 100%;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 3px 12px;
+  gap: 4px 12px;
   text-align: left;
-  padding: 10px 4px;
+  padding: 16px 8px;
+  line-height: 1.5;
   background: transparent;
   border: 0;
   border-bottom: 1px solid var(--line);
@@ -3560,15 +3573,15 @@ button:disabled {
 }
 .doc-row strong {
   min-width: 0;
-  font-size: calc(14px * var(--device-font-scale, 1));
-  font-weight: 500;
+  font-size: var(--ui-font-size);
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .doc-row time {
   color: var(--muted);
-  font-size: calc(11px * var(--device-font-scale, 1));
+  font-size: var(--caption-font-size);
   white-space: nowrap;
   align-self: baseline;
 }
@@ -3576,7 +3589,7 @@ button:disabled {
   grid-column: 1 / -1;
   min-width: 0;
   color: var(--muted);
-  font-size: calc(12px * var(--device-font-scale, 1));
+  font-size: var(--ui-secondary-font-size);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3697,9 +3710,11 @@ button:disabled {
   outline: 1px solid var(--line);
 }
 .file-preview-text {
-  margin: 0;
-  font: inherit;
-  line-height: 1.7;
+  width: min(100%, var(--reading-width));
+  margin: 0 auto;
+  font-family: inherit;
+  font-size: var(--reading-font-size);
+  line-height: var(--reading-line-height);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   user-select: text;
@@ -4556,8 +4571,8 @@ button:disabled {
 }
 .settings-font-preview p {
   margin: 0;
-  line-height: 1.7;
-  font-size: calc(14px * var(--device-font-scale, 1));
+  line-height: var(--reading-line-height);
+  font-size: var(--reading-font-size);
 }
 .settings-font-preview .settings-preview-secondary {
   margin-top: 12px;

@@ -108,17 +108,18 @@
 .workspace-tree-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
   min-width: 0;
-  min-height: 31px;
-  padding: 5px 10px 5px calc(8px + var(--tree-depth, 0) * 18px);
+  min-height: 36px;
+  padding: 8px 10px 8px calc(8px + var(--tree-depth, 0) * 18px);
   border: 0;
   border-radius: 4px;
   color: var(--text);
   background: transparent;
   font: inherit;
-  font-size: calc(13px * var(--device-font-scale, 1));
+  font-size: var(--ui-font-size);
+  line-height: 1.43;
   text-align: left;
   cursor: pointer;
 }
@@ -451,7 +452,7 @@ iframe.workspace-file-media {
   border-top: 1px solid var(--line);
   color: var(--muted);
   background: var(--bg);
-  font-size: calc(11px * var(--device-font-scale, 1));
+  font-size: var(--caption-font-size);
 }
 .workspace-code-position {
   flex: none;
@@ -464,7 +465,7 @@ iframe.workspace-file-media {
   min-width: 0;
   margin: 0;
   color: var(--muted);
-  font-size: calc(11px * var(--device-font-scale, 1));
+  font-size: var(--caption-font-size);
   overflow-wrap: anywhere;
 }
 .workspace-editor-notice[data-error] {
@@ -484,11 +485,11 @@ iframe.workspace-file-media {
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  padding: 20px 24px 60px;
+  padding: 24px 24px 64px;
   overscroll-behavior: contain;
 }
 .workspace-markdown-reader > .workspace-file-document {
-  width: min(100%, var(--workspace-markdown-width, 900px));
+  width: min(100%, var(--workspace-markdown-width, var(--reading-width)));
   margin-inline: auto;
 }
 .workspace-markdown-reader :is(h1, h2, h3, h4, h5, h6):focus {
@@ -528,7 +529,7 @@ iframe.workspace-file-media {
   background: transparent;
   color: var(--muted);
   font: inherit;
-  font-size: calc(12px * var(--device-font-scale, 1));
+  font-size: var(--ui-secondary-font-size);
   line-height: 1.6;
   text-align: left;
   overflow-wrap: anywhere;

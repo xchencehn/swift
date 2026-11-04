@@ -1974,7 +1974,7 @@
     const font = document.createElement('section');
     font.className = 'device-settings-section';
     font.innerHTML =
-      '<div class="device-font-label"><div><h3><label for="deviceFontSize">字体大小</label></h3><p id="deviceFontDescription">调整界面与会话内容的字号。</p></div><output id="deviceFontValue" for="deviceFontSize"></output></div><div class="device-font-controls"><input id="deviceFontSize" type="range" min="12" max="20" step="1" aria-describedby="deviceFontDescription"><button id="deviceFontReset" type="button">恢复默认</button></div>';
+      '<div class="device-font-label"><div><h3><label for="deviceFontSize">界面基准字号</label></h3><p id="deviceFontDescription">调整导航和控件的字号，聊天与文档正文按比例放大。</p></div><output id="deviceFontValue" for="deviceFontSize"></output></div><div class="device-font-controls"><input id="deviceFontSize" type="range" min="12" max="20" step="1" aria-describedby="deviceFontDescription"><button id="deviceFontReset" type="button">恢复默认</button></div>';
     const slider = font.querySelector('input'),
       value = font.querySelector('output');
     function updateFont() {

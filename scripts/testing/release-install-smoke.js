@@ -80,6 +80,45 @@ async function main() {
       stdio: 'pipe',
     });
     assert(!fs.readFileSync(operations, 'utf8').includes('\nstart\n'));
+    // Upgrade through the GitHub installer using already downloaded, verified assets.
+    const latestFile = path.join(output, 'server-latest.json');
+    const latest = JSON.parse(fs.readFileSync(latestFile));
+    latest.revision = before.revision;
+    fs.writeFileSync(latestFile, JSON.stringify(latest));
+    const originalConfig = fs.readFileSync(path.join(source, '.local/config/swift.env'));
+    const githubInstall = path.join(directory, 'github-install');
+    const githubResult = JSON.parse(
+      execFileSync(
+        'python3',
+        [
+          'deploy/github-install.py',
+          '--assets',
+          output,
+          '--directory',
+          githubInstall,
+          '--previous-source',
+          source,
+          '--root',
+          directory,
+          '--herdr',
+          herdr,
+        ],
+        { cwd: root, env, timeout: 180000, encoding: 'utf8' },
+      )
+        .trim()
+        .split('\n')
+        .at(-1),
+    );
+    assert.equal(githubResult.installed, true);
+    assert.equal(githubResult.nativeRuntimeRestarted, false);
+    assert.deepEqual(
+      fs.readFileSync(path.join(githubResult.directory, '.local/config/swift.env')),
+      originalConfig,
+    );
+    assert.equal(
+      fs.realpathSync(path.join(home, '.local/bin/swift')),
+      path.join(githubResult.directory, 'deploy/swift.sh'),
+    );
     const commandDirectory = path.join(source, 'data/commands');
     const catalogFile = fs
       .readdirSync(commandDirectory)
@@ -157,6 +196,8 @@ async function main() {
       version,
       productionDependencies: true,
       portableInstallation: true,
+      githubVerifiedUpgrade: true,
+      githubUpgradePreservedConfiguration: true,
       systemdVerified: true,
       commandCatalogIncluded: true,
       unauthorizedStatus: response.status,

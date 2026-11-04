@@ -1,5 +1,7 @@
 # 快速开始
 
+正式安装与升级从 [GitHub Releases](https://github.com/xchencehn/swift/releases)下载。使用 `github-install.py` 可以核对安装包哈希与来源提交，保留原配置和原生会话；具体命令与既有安装迁移见[GitHub 发布与部署](RELEASING.md#安装与升级服务器)。下面的源码安装适用于本地开发。
+
 ## 服务器
 
 服务器需要 Node.js 22.13+、Python 3、兼容的 Herdr 和已经存在的项目目录。Linux / WSL 安装器使用 systemd 用户服务；可选的受管 Codex 扩展需要 Python 3.12+，详见[扩展说明](../runtime/codex/README.md)。
